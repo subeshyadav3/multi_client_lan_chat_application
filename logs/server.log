@@ -1,0 +1,46 @@
+[2026-07-04 10:42:39] [INFO] Server started on port 8080
+[2026-07-04 10:42:39] [INFO] User '' disconnected
+[2026-07-04 10:42:43] [INFO] Server shutting down
+[2026-07-04 10:43:04] [INFO] Server started on port 8080
+[2026-07-04 10:44:55] [INFO] Server started on port 8080
+[2026-07-04 10:45:15] [INFO] Server started on port 8080
+[2026-07-04 10:45:19] [INFO] Server shutting down
+[2026-07-04 10:45:25] [INFO] Server started on port 8080
+[2026-07-04 10:46:56] [INFO] Server started on port 8080
+[2026-07-04 10:47:11] [INFO] Server shutting down
+[2026-07-04 10:50:08] [INFO] Server started on port 8080
+[2026-07-04 10:50:09] [INFO] User '' disconnected
+[2026-07-04 10:50:09] [INFO] User 'alice' logged in from 127.0.0.1
+[2026-07-04 10:50:09] [INFO] User 'bob' logged in from 127.0.0.1
+[2026-07-04 10:50:10] [MSG] [general] alice: hello everyone
+[2026-07-04 10:50:10] [PRIV] bob -> alice: hi alice
+[2026-07-04 10:50:10] [INFO] User 'bob' disconnected
+[2026-07-04 10:50:11] [INFO] User 'alice' disconnected
+[2026-07-04 10:50:11] [INFO] Server shutting down
+[2026-07-04 11:05:37] [INFO] Server started on port 8080
+[2026-07-04 11:05:36] [INFO] User '' disconnected
+[2026-07-04 11:05:36] [INFO] User 'alice' logged in from 127.0.0.1
+[2026-07-04 11:05:36] [INFO] User 'bob' logged in from 127.0.0.1
+[2026-07-04 11:05:37] [MSG] [general] alice: hello everyone
+[2026-07-04 11:05:37] [PRIV] bob -> alice: hi alice
+[2026-07-04 11:05:38] [INFO] User 'bob' disconnected
+[2026-07-04 11:05:38] [INFO] User 'alice' disconnected
+[2026-07-04 11:05:38] [INFO] Server shutting down
+[2026-07-04 11:07:07] [INFO] Server started on port 8080
+[2026-07-04 11:07:07] [INFO] User '' disconnected
+[2026-07-04 11:07:07] [INFO] User 'alice' logged in from 127.0.0.1
+[2026-07-04 11:07:08] [INFO] User 'bob' logged in from 127.0.0.1
+[2026-07-04 11:07:08] [MSG] [general] alice: hello everyone
+[2026-07-04 11:07:09] [PRIV] bob -> alice: hi alice
+[2026-07-04 11:07:09] [INFO] User 'bob' disconnected
+[2026-07-04 11:07:09] [INFO] User 'alice' disconnected
+[2026-07-04 11:07:09] [INFO] Server shutting down
+[2026-07-04 11:10:51] [INFO] Server started on port 8080
+[2026-07-04 11:10:51] [INFO] User '' disconnected
+[2026-07-04 11:10:51] [INFO] User 'alice' logged in from 127.0.0.1
+[2026-07-04 11:10:51] [INFO] User 'bob' logged in from 127.0.0.1
+[2026-07-04 11:10:52] [MSG] [general] alice: hello everyone
+[2026-07-04 11:10:52] [PRIV] bob -> alice: hi alice
+[2026-07-04 11:10:52] [INFO] User 'bob' disconnected
+[2026-07-04 11:10:53] [INFO] User 'alice' disconnected
+[2026-07-04 11:10:53] [INFO] Server shutting down

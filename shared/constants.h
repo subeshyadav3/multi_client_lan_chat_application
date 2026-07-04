@@ -1,0 +1,16 @@
+#ifndef CONSTANTS_H
+#define CONSTANTS_H
+
+#define PORT 8080
+#define MAX_CLIENTS 128
+#define MAX_USERNAME 32
+#define MAX_PASSWORD 32
+#define MAX_MESSAGE 2048
+#define MAX_ROOM_NAME 64
+#define MAX_ROOMS 32
+#define BUFFER_SIZE 4096
+#define MAX_FILE_SIZE (64 * 1024 * 1024)
+#define MAX_HISTORY_MESSAGES 500
+#define MAX_SEARCH_RESULTS 100
+
+#endif // CONSTANTS_H
