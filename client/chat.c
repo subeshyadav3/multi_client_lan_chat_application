@@ -133,13 +133,18 @@ bool client_is_connected(void) {
 
 static bool send_line(const char* line) {
     size_t len = strlen(line);
-    char buf[BUFFER_SIZE + 2];
     if (len > BUFFER_SIZE) len = BUFFER_SIZE;
+    char buf[BUFFER_SIZE + 4];
     memcpy(buf, line, len);
     buf[len] = '\n';
-    buf[len+1] = '\0';
-    ssize_t sent = send(sockfd, buf, len+1, 0);
-    return sent == (ssize_t)(len+1);
+    size_t total = len + 1;
+    size_t sent_total = 0;
+    while (sent_total < total) {
+        ssize_t n = send(sockfd, buf + sent_total, total - sent_total, 0);
+        if (n <= 0) return false;
+        sent_total += (size_t)n;
+    }
+    return true;
 }
 
 static void* client_receive_loop(void* arg) {

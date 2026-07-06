@@ -44,3 +44,25 @@
 [2026-07-04 11:10:52] [INFO] User 'bob' disconnected
 [2026-07-04 11:10:53] [INFO] User 'alice' disconnected
 [2026-07-04 11:10:53] [INFO] Server shutting down
+[2026-07-04 11:18:44] [INFO] Server started on port 8080
+[2026-07-04 11:19:25] [INFO] User 'subesh' logged in from 127.0.0.1
+[2026-07-04 11:19:29] [INFO] User 'subesh' disconnected
+[2026-07-06 13:48:50] [INFO] Server started on port 8080
+[2026-07-06 13:48:50] [INFO] User 'alice' logged in from 127.0.0.1
+[2026-07-06 13:48:53] [INFO] Server shutting down
+[2026-07-06 13:50:21] [INFO] Server started on port 8080
+[2026-07-06 13:50:21] [INFO] User 'alice' logged in from 127.0.0.1
+[2026-07-06 13:50:21] [INFO] User 'bob' logged in from 127.0.0.1
+[2026-07-06 13:50:21] [INFO] User 'carol' logged in from 127.0.0.1
+[2026-07-06 13:50:22] [MSG] [general] alice: Hello everyone from alice[2026-07-06 13:50:22] [PRIV] bob -> alice: Hi alice, this is bob
+
+[2026-07-06 13:50:22] [INFO] User 'bob' disconnected
+[2026-07-06 13:50:24] [INFO] Server shutting down
+[2026-07-06 13:50:24] [INFO] User 'alice' disconnected
+[2026-07-06 13:50:24] [INFO] User 'carol' disconnected
+[2026-07-06 13:52:56] [INFO] Server started on port 8080
+[2026-07-06 13:53:05] [INFO] User 'subesh' logged in from 127.0.0.1
+[2026-07-06 13:53:13] [MSG] [general] subesh: hello
+[2026-07-06 13:53:29] [MSG] [general] subesh: hello
+[2026-07-06 13:53:38] [MSG] [general] subesh: hhegfd
+[2026-07-06 13:53:44] [INFO] User 'subesh' disconnected

@@ -117,7 +117,7 @@ static void *handle_client(void *arg) {
             if (buf[i] == '\n') {
                 line[line_len] = '\0';
                 char cmd[64] = {0}, arg1[256] = {0}, arg2[MAX_MESSAGE] = {0}, arg3[256] = {0};
-                int parts = sscanf(line, "%63[^|]|%255[^|]|%4095[^|]|%255[^\n]", cmd, arg1, arg2, arg3);
+                int parts = sscanf(line, "%63[^|]|%255[^|]|%2047[^|]|%255[^\n]", cmd, arg1, arg2, arg3);
 
                 char ts[32]; get_timestamp(ts, sizeof(ts));
 
@@ -254,10 +254,12 @@ static void *handle_client(void *arg) {
     }
 
     c->active = false;
-    char notify[256];
-    snprintf(notify, sizeof(notify), "NOTIFY|%s has left the chat.\n", c->username);
-    broadcast(notify, NULL);
-    log_message("INFO", "User '%s' disconnected", c->username);
+    if (c->username[0]) {
+        char notify[256];
+        snprintf(notify, sizeof(notify), "NOTIFY|%s has left the chat.\n", c->username);
+        broadcast(notify, NULL);
+        log_message("INFO", "User '%s' disconnected", c->username);
+    }
     close(c->sockfd);
     client_remove(c->sockfd);
     return NULL;

@@ -22,10 +22,14 @@ static void parse_pipe(const char *msg, char out[][256], int max) {
     for (int j = i; j < max; j++) out[j][0] = 0;
 }
 
-static void on_message_received(const char *msg) {
-    if (!msg) return;
+typedef struct {
+    char msg[2048];
+} DispatchMsg;
+
+static gboolean process_on_main_thread(gpointer data) {
+    DispatchMsg *d = (DispatchMsg *)data;
     char p[6][256];
-    parse_pipe(msg, p, 6);
+    parse_pipe(d->msg, p, 6);
 
     if (strcmp(p[0], "PUBLIC") == 0 && p[1][0] && p[2][0] && p[3][0])
         ui_append_message(p[1], p[2], p[3], p[4]);
@@ -74,11 +78,28 @@ static void on_message_received(const char *msg) {
         snprintf(buf, sizeof(buf), "File received: %s", p[1]);
         ui_add_notification(buf);
     }
+
+    g_free(d);
+    return FALSE;
+}
+
+static void on_message_received(const char *msg) {
+    if (!msg) return;
+    DispatchMsg *d = g_new(DispatchMsg, 1);
+    strncpy(d->msg, msg, sizeof(d->msg) - 1);
+    d->msg[sizeof(d->msg) - 1] = '\0';
+    g_idle_add(process_on_main_thread, d);
+}
+
+static gboolean disconnect_on_main_thread(gpointer data) {
+    (void)data;
+    ui_add_notification("Disconnected from server.");
+    return FALSE;
 }
 
 static void on_disconnect(const char *reason) {
     (void)reason;
-    ui_add_notification("Disconnected from server.");
+    g_idle_add(disconnect_on_main_thread, NULL);
 }
 
 int main(int argc, char *argv[]) {
