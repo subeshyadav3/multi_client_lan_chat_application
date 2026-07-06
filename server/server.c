@@ -145,7 +145,7 @@ static void *handle_client(void *arg) {
                 } else if (strcmp(cmd, "PUBLIC") == 0 && parts >= 2) {
                     char msg[MAX_MESSAGE + 512];
                     snprintf(msg, sizeof(msg), "PUBLIC|%s|%s|%s|%s\n", c->current_room, c->username, arg2, ts);
-                    broadcast_room(c->current_room, msg, c);
+                    broadcast_room(c->current_room, msg, NULL);
                     total_messages++;
                     log_message("MSG", "[%s] %s: %s", c->current_room, c->username, arg2);
                 } else if (strcmp(cmd, "PRIVATE") == 0 && parts >= 3) {
