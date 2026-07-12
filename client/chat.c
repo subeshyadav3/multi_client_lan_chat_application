@@ -87,6 +87,13 @@ bool client_send_login(const char* username) {
     return send_line(line);
 }
 
+bool client_send_login_pw(const char* username, const char* password) {
+    if (!connected) return false;
+    char line[256];
+    snprintf(line, sizeof(line), "LOGIN|%s|%s", username, password ? password : "");
+    return send_line(line);
+}
+
 bool client_send_public(const char* room, const char* text) {
     if (!connected) return false;
     char line[MAX_MESSAGE + 128];
@@ -111,8 +118,22 @@ bool client_send_typing(const char* room) {
 
 bool client_send_file_offer(const char* filename, long size, const char* target) {
     if (!connected) return false;
-    char line[256];
+    char line[512];
     snprintf(line, sizeof(line), "FILE_OFFER|%s|%ld|%s", filename, size, target?target:"");
+    return send_line(line);
+}
+
+bool client_send_file_reject(const char* sender, const char* filename, const char* reason) {
+    if (!connected || !sender || !filename) return false;
+    char line[512];
+    snprintf(line, sizeof(line), "FILE_REJECT|%s|%s|%s", sender, filename, reason ? reason : "rejected");
+    return send_line(line);
+}
+
+bool client_send_file_accept(const char* sender, const char* filename) {
+    if (!connected || !sender || !filename) return false;
+    char line[512];
+    snprintf(line, sizeof(line), "FILE_ACCEPT|%s|%s", sender, filename);
     return send_line(line);
 }
 

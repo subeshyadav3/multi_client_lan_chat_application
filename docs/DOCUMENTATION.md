@@ -103,6 +103,8 @@ The pipe character `|` is the field separator. There is no escaping, so fields m
 | `FILE_OFFER` | `filename\|size\|target` | Offer a file. `target` empty = broadcast. |
 | `FILE_DATA` | `filename\|base64chunk` | One chunk of file data. |
 | `FILE_END` | `filename` | End of file transfer. |
+| `FILE_REJECT` | `sender\|filename\|reason` | Decline an incoming file offer. |
+| `FILE_ACCEPT` | `sender\|filename` | Accept an incoming file offer. |
 | `LOGOUT` | none | Disconnect cleanly. |
 
 ### 4.2 Server → Client messages
@@ -119,8 +121,9 @@ The pipe character `|` is the field separator. There is no escaping, so fields m
 | `ROOMS` | `room1,room2` | Comma-separated room names. |
 | `TYPING` | `room\|username` | Typing indicator. |
 | `FILE_OFFER` | `sender\|filename\|size\|target` | Incoming file offer. |
-| `FILE_DATA` | `filename\|base64chunk` | Incoming file chunk. |
-| `FILE_END` | `filename` | File transfer complete. |
+| `FILE_DATA` | `sender\|filename\|base64chunk` | Incoming file chunk. |
+| `FILE_END` | `sender\|filename` | File transfer complete. |
+| `FILE_REJECT` | `recipient\|filename\|reason` | File offer was rejected by recipient. |
 | `KICK` | `reason` | Kicked by administrator. |
 
 ### 4.3 Protocol notes
@@ -235,11 +238,18 @@ A user whose username is exactly `admin` is marked as an administrator on login 
 
 When the client sees a `FILE_OFFER`, it shows a notification. Each `FILE_DATA` chunk is base64-decoded and appended to `files/<filename>.tmp`. When `FILE_END` arrives, the temporary file is renamed to `files/<filename>` and a notification is displayed.
 
-### 8.3 Limitations
+### 8.3 File-transfer improvements
 
-- There is no acceptance/rejection handshake; offered files are written automatically.
-- Simultaneous transfers of files with the same name will collide in `files/`.
-- Large files are split into ~2 KB raw chunks before base64 encoding, so the final line stays under `BUFFER_SIZE`.
+- The recipient sees an accept/reject dialog for each incoming file offer.
+- Accepted files are written to `files/<filename>`; if the name already exists, a unique suffix such as ` (1)` is appended automatically.
+- File data is routed only to the intended recipient (or broadcast if no target was specified), so unrelated clients no longer receive the chunks.
+- Transfer progress is shown as a percentage notification.
+- Received files appear in the sidebar Files list with an **Open** button.
+
+### 8.4 Limitations
+
+- Very large files are split into ~2 KB raw chunks before base64 encoding, so the final line stays under `BUFFER_SIZE`.
+- The server does not persist files; they are stored only on the recipient's local disk.
 
 ## 9. Logging
 

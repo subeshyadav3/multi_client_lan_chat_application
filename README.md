@@ -66,6 +66,12 @@ ls bin/
 | `/create <room>` | Create a new room |
 | `/announce <text>` | Admin only: broadcast an announcement (username must be `admin`) |
 | `/kick <user> <reason>` | Admin only: kick a user |
+| `/createuser <user> <password>` | Admin only: create a new user account |
+| `/deleteuser <user>` | Admin only: delete a user account |
+| `/resetpass <user> <password>` | Admin only: reset a user's password |
+| `/listaccounts` | Admin only: list registered accounts |
+
+Click a user in the sidebar to open their profile and start a private message or send a file directly.
 
 ## Documentation
 
@@ -83,14 +89,19 @@ Expected output: `SMOKE TEST PASSED`.
 
 ## Features
 
-- Username authentication with duplicate prevention
-- Public chat rooms
-- Private messaging (`/msg username text`)
-- Real-time online user list
+- Username/password authentication with duplicate prevention
+- Public chat rooms (with optional passwords)
+- Private messaging (`/msg username text`) and PM mode from the user list
+- Real-time online user list with profile cards
 - Typing indicators
 - File transfer with base64 chunks
+  - Send files to everyone or to a specific user
+  - Incoming file accept/reject dialog
+  - Transfer progress notifications
+  - Received-files list in the sidebar with one-click Open
+  - Automatic filename collision handling
 - Server announcements
-- Admin controls (kick, broadcast, view stats)
+- Admin controls (kick, broadcast, view stats, user account management)
 - Server-side logging in `logs/server.log`
 - Graceful connect/disconnect handling
 - Dark mode GTK3 UI with host/port configuration

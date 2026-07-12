@@ -17,5 +17,10 @@ void ui_add_notification(const char *text);
 void ui_show_typing(const char *room, const char *username);
 void ui_run(void);
 void ui_cleanup(void);
+void ui_on_file_received(const char *filename, const char *fullpath);
+void ui_show_file_offer(const char *sender, const char *filename, const char *size, const char *target);
+void ui_append_file_chunk(const char *filename, const char *base64);
+void ui_finish_file(const char *filename);
+void ui_on_file_rejected(const char *filename, const char *recipient, const char *reason);
 
 #endif

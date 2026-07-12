@@ -82,19 +82,28 @@ def main():
     run(["make", "clean"])
     run(["make"])
 
+    # Ensure test user accounts exist.
+    config_dir = os.path.join(ROOT, "config")
+    os.makedirs(config_dir, exist_ok=True)
+    with open(os.path.join(config_dir, "users.cred"), "w") as f:
+        f.write("alice:alice\n")
+        f.write("bob:bob\n")
+
     server = subprocess.Popen(["./bin/chatserver"], cwd=ROOT,
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     try:
         wait_for_server()
 
         alice = Client()
+        time.sleep(0.2)
         bob = Client()
+        time.sleep(0.2)
 
         # Login
-        alice.send("LOGIN|alice")
+        alice.send("LOGIN|alice|alice")
         alice.expect("LOGIN_OK|alice")
 
-        bob.send("LOGIN|bob")
+        bob.send("LOGIN|bob|bob")
         bob.expect("LOGIN_OK|bob")
 
         # Bob's join may have produced a NOTIFY on alice; drain it.

@@ -49,40 +49,49 @@ static gboolean process_on_main_thread(gpointer data) {
         ui_update_user_list(p[1], 0);
     else if (strcmp(p[0], "ROOMS") == 0)
         ui_update_room_list(p[1], 0);
-    else if (strcmp(p[0], "KICK") == 0) {
+    else if (strcmp(p[0], "JOIN_OK") == 0)
+        ui_add_notification(p[1][0] ? p[1] : "Joined room");
+    else if (strcmp(p[0], "JOIN_FAIL") == 0)
+        ui_add_notification(p[1][0] ? p[1] : "Failed to join room");
+    else if (strcmp(p[0], "ROOM_CREATED") == 0) {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "Room '%s' created!", p[1][0] ? p[1] : "?");
+        ui_add_notification(buf);
+        client_send_raw("LIST_ROOMS");
+    } else if (strcmp(p[0], "KICK") == 0) {
         ui_add_notification("You were kicked by the administrator.");
         client_disconnect();
-    } else if (strcmp(p[0], "FILE_OFFER") == 0 && p[1][0]) {
-        char buf[1024];
-        snprintf(buf, sizeof(buf), "File offer: %s from %s (%s bytes)", p[2], p[1], p[3]);
-        ui_add_notification(buf);
-    } else if (strcmp(p[0], "FILE_DATA") == 0 && p[1][0] && p[2][0]) {
-        gsize len;
-        guchar *decoded = g_base64_decode(p[2], &len);
-        if (decoded) {
-            char path[512];
-            snprintf(path, sizeof(path), "files/%s.tmp", p[1]);
-            FILE *fp = fopen(path, "ab");
-            if (fp) {
-                fwrite(decoded, 1, len, fp);
-                fclose(fp);
+    } else if (strcmp(p[0], "ERROR") == 0) {
+        ui_add_notification(p[1][0] ? p[1] : "Server error");
+    } else if (strcmp(p[0], "FILE_OFFER") == 0 && p[1][0] && p[2][0]) {
+        /* FILE_OFFER|sender|filename|size|target */
+        ui_show_file_offer(p[1], p[2], p[3], p[4]);
+    } else if (strcmp(p[0], "FILE_DATA") == 0) {
+        /* FILE_DATA|sender|filename|base64 — extract base64 after 3rd field */
+        const char *m = d->msg;
+        int pipes = 0;
+        const char *base64 = NULL;
+        for (const char *cp = m; *cp; cp++) {
+            if (*cp == '|') {
+                pipes++;
+                if (pipes == 3) { base64 = cp + 1; break; }
             }
-            g_free(decoded);
         }
-    } else if (strcmp(p[0], "FILE_END") == 0 && p[1][0]) {
-        char src[512], dst[512];
-        snprintf(src, sizeof(src), "files/%s.tmp", p[1]);
-        snprintf(dst, sizeof(dst), "files/%s", p[1]);
-        rename(src, dst);
-        char buf[512];
-        snprintf(buf, sizeof(buf), "File received: %s", p[1]);
-        ui_add_notification(buf);
+        if (base64 && *base64) {
+            /* sender=p[1], filename=p[2] from limited parse */
+            ui_append_file_chunk(p[2], base64);
+        }
+    } else if (strcmp(p[0], "FILE_END") == 0 && p[1][0] && p[2][0]) {
+        /* FILE_END|sender|filename */
+        ui_finish_file(p[2]);
+    } else if (strcmp(p[0], "FILE_REJECT") == 0 && p[1][0] && p[2][0]) {
+        /* FILE_REJECT|recipient|filename|reason */
+        ui_on_file_rejected(p[2], p[1], p[3]);
     }
 
     g_free(d);
     return FALSE;
 }
-
 static void on_message_received(const char *msg) {
     if (!msg) return;
     DispatchMsg *d = g_new(DispatchMsg, 1);
