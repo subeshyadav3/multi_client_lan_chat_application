@@ -1203,8 +1203,8 @@ static const char *THEME_CSS =
 "#btn-primary:hover, #btn-send:hover { background-color: #2ea043; }"
 "#btn-primary:active, #btn-send:active { background-color: #1a7f37; }"
 
-"#btn-danger { background-color: #21262d; color: #f85149; border-color: #f8514933; }"
-"#btn-danger:hover { background-color: #f8514922; border-color: #f85149; }"
+"#btn-danger { background-color: #21262d; color: #f85149; border-color: rgba(248,81,73,0.2); }"
+"#btn-danger:hover { background-color: rgba(248,81,73,0.13); border-color: #f85149; }"
 
 "#btn-secondary {"
 "  background-color: #1c2128;"
