@@ -9,7 +9,7 @@ void ui_show_login_window(void);
 void ui_show_login_error(const char *reason);
 void ui_show_main_window(void);
 void ui_append_message(const char *room, const char *sender, const char *text, const char *timestamp);
-void ui_append_private_message(const char *sender, const char *text, const char *timestamp);
+void ui_append_private_message(const char *sender, const char *recipient, const char *text, const char *timestamp);
 void ui_append_announcement(const char *text, const char *timestamp);
 void ui_update_user_list(const char *users_csv, int count);
 void ui_update_room_list(const char *rooms_csv, int count);

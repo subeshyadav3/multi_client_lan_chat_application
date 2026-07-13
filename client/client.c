@@ -32,11 +32,11 @@ static gboolean process_on_main_thread(gpointer data) {
     parse_pipe(d->msg, p, 6);
 
     if (strcmp(p[0], "PUBLIC") == 0 && p[1][0] && p[2][0] && p[3][0])
-        ui_append_message(p[1], p[2], p[3], p[4]);
-    else if (strcmp(p[0], "PRIVATE") == 0 && p[1][0] && p[2][0])
-        ui_append_private_message(p[1], p[3], p[4]);
-    else if (strcmp(p[0], "ANNOUNCE") == 0 && p[1][0])
-        ui_append_announcement(p[2], p[3]);
+        ui_append_message(p[1], p[2], p[3], p[4][0] ? p[4] : NULL);
+    else if (strcmp(p[0], "PRIVATE") == 0 && p[1][0] && p[3][0])
+        ui_append_private_message(p[1], p[2], p[3], p[4][0] ? p[4] : NULL);
+    else if (strcmp(p[0], "ANNOUNCE") == 0 && p[2][0])
+        ui_append_announcement(p[2], p[3][0] ? p[3] : NULL);
     else if (strcmp(p[0], "NOTIFY") == 0)
         ui_add_notification(p[1]);
     else if (strcmp(p[0], "TYPING") == 0 && p[1][0])
@@ -64,10 +64,11 @@ static gboolean process_on_main_thread(gpointer data) {
     } else if (strcmp(p[0], "ERROR") == 0) {
         ui_add_notification(p[1][0] ? p[1] : "Server error");
     } else if (strcmp(p[0], "FILE_OFFER") == 0 && p[1][0] && p[2][0]) {
-        /* FILE_OFFER|sender|filename|size|target */
+        /* FILE_OFFER|sender|filename|size|target — strip trailing newlines */
+        if (p[4][0]) { char *nl = strchr(p[4], '\n'); if (nl) *nl = '\0'; }
         ui_show_file_offer(p[1], p[2], p[3], p[4]);
     } else if (strcmp(p[0], "FILE_DATA") == 0) {
-        /* FILE_DATA|sender|filename|base64 — extract base64 after 3rd field */
+        /* FILE_DATA|sender|filename|base64 — extract base64 after 3rd pipe */
         const char *m = d->msg;
         int pipes = 0;
         const char *base64 = NULL;
@@ -77,13 +78,21 @@ static gboolean process_on_main_thread(gpointer data) {
                 if (pipes == 3) { base64 = cp + 1; break; }
             }
         }
-        if (base64 && *base64) {
-            /* sender=p[1], filename=p[2] from limited parse */
+        /* Strip trailing newline if present */
+        if (base64) {
+            char *nl = strchr(base64, '\n');
+            if (nl) *nl = '\0';
+        }
+        if (base64 && *base64 && p[2][0]) {
             ui_append_file_chunk(p[2], base64);
         }
-    } else if (strcmp(p[0], "FILE_END") == 0 && p[1][0] && p[2][0]) {
-        /* FILE_END|sender|filename */
-        ui_finish_file(p[2]);
+    } else if (strcmp(p[0], "FILE_END") == 0) {
+        /* FILE_END|sender|filename — strip trailing newlines from filename */
+        if (p[2][0]) {
+            char *nl = strchr(p[2], '\n');
+            if (nl) *nl = '\0';
+            ui_finish_file(p[2]);
+        }
     } else if (strcmp(p[0], "FILE_REJECT") == 0 && p[1][0] && p[2][0]) {
         /* FILE_REJECT|recipient|filename|reason */
         ui_on_file_rejected(p[2], p[1], p[3]);
