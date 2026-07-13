@@ -376,8 +376,8 @@ static void *handle_client(void *arg) {
                     log_message("PRIV", "%s -> %s: %s", c->username, arg1, arg2);
                 } else if (strcmp(cmd, "TYPING") == 0 && parts >= 1) {
                     char msg[128];
-                    snprintf(msg, sizeof(msg), "TYPING|%s|%s\n", arg1, c->username);
-                    broadcast(msg, c);
+                    snprintf(msg, sizeof(msg), "TYPING|%s|%s\n", c->current_room, c->username);
+                    broadcast_room(c->current_room, msg, c);
                 } else if (strcmp(cmd, "JOIN") == 0 && parts >= 2) {
                     /* JOIN|room  or  JOIN|room|password */
                     const char *room_name = arg1;
@@ -512,7 +512,7 @@ static void *handle_client(void *arg) {
                     snprintf(msg, sizeof(msg), "ANNOUNCE|%s|%s|%s\n", "Server", arg1, ts);
                     broadcast(msg, NULL);
                     log_message("CTRL", "Announcement: %s", arg1);
-                } else if (strcmp(cmd, "FILE_OFFER") == 0 && parts >= 4) {
+                } else if (strcmp(cmd, "FILE_OFFER") == 0 && parts >= 3) {
                     total_files++;
                     char safe_name[MAX_FILENAME];
                     sanitize_filename(safe_name, sizeof(safe_name), arg1);
