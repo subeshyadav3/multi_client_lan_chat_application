@@ -1523,6 +1523,9 @@ void ui_show_login_window(void) {
     gtk_box_pack_start(GTK_BOX(card), footer, FALSE, FALSE, 0);
 
     gtk_widget_show_all(win_login);
+    /* Ensure window is visible, not minimised, and on top. */
+    gtk_window_deiconify(GTK_WINDOW(win_login));
+    gtk_window_present(GTK_WINDOW(win_login));
     gtk_widget_grab_focus(entry_login);
     if (gdk_display_get_default()) gdk_display_flush(gdk_display_get_default());
 }
