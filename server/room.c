@@ -128,6 +128,14 @@ bool room_is_protected(const char *name) {
     return p;
 }
 
+bool room_exists(const char *name) {
+    if (!global_rooms || !name || !name[0]) return false;
+    pthread_mutex_lock(&room_mutex);
+    bool exists = room_find(name) != NULL;
+    pthread_mutex_unlock(&room_mutex);
+    return exists;
+}
+
 RoomNode *room_find(const char *name) {
     if (!global_rooms || !name) return NULL;
     for (RoomNode *n = global_rooms->head; n; n = n->next) {

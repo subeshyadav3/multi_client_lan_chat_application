@@ -30,6 +30,7 @@ bool room_delete(const char *name, const char *requester);
 bool room_update_field(const char *name, const char *field, const char *value);
 bool room_check_password(const char *name, const char *password);
 bool room_is_protected(const char *name);
+bool room_exists(const char *name);
 RoomNode *room_find(const char *name);
 void room_list(char *out, size_t out_len);
 

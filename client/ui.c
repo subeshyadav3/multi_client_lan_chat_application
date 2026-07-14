@@ -1,5 +1,6 @@
 #include <gtk/gtk.h>
 #include <gdk/gdk.h>
+#include <glib/gstdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -104,11 +105,29 @@ typedef struct PendingFile {
     char tmp_path[512];
     char final_path[512];
     bool accepted;
+    bool write_failed;
+    bool is_pm;                         /* true if this was a private (PM) transfer */
+    char pm_with[MAX_USERNAME];         /* username the file was exchanged with */
     struct PendingFile *next;
 } PendingFile;
 
 static PendingFile *pending_files = NULL;
 static pthread_mutex_t pending_files_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+/* A direct transfer is kept locally until the recipient chooses Accept. */
+typedef struct {
+    char *path;
+    char *filename;
+    char recipient[MAX_USERNAME];
+    long size;
+} OutgoingFile;
+static OutgoingFile outgoing_file = {0};
+
+static void clear_outgoing_file(void) {
+    g_free(outgoing_file.path);
+    g_free(outgoing_file.filename);
+    memset(&outgoing_file, 0, sizeof(outgoing_file));
+}
 
 static PendingFile *pending_find(const char *filename) {
     pthread_mutex_lock(&pending_files_mutex);
@@ -143,7 +162,7 @@ static void init_files_dir(void) {
     mkdir("files", 0755);
 }
 
-static PendingFile *pending_add(const char *sender, const char *filename, long size) {
+static PendingFile *pending_add(const char *sender, const char *filename, long size, bool is_pm, const char *pm_with) {
     pthread_mutex_lock(&pending_files_mutex);
     PendingFile *pf = calloc(1, sizeof(PendingFile));
     if (pf) {
@@ -153,6 +172,9 @@ static PendingFile *pending_add(const char *sender, const char *filename, long s
         snprintf(pf->tmp_path,  sizeof(pf->tmp_path),  "%s/%s.tmp", resolved_files_dir, filename);
         snprintf(pf->final_path, sizeof(pf->final_path), "%s/%s", resolved_files_dir, filename);
         pf->accepted = false;
+        pf->is_pm = is_pm;
+        if (pm_with && pm_with[0])
+            strncpy(pf->pm_with, pm_with, MAX_USERNAME - 1);
         pf->next = pending_files;
         pending_files = pf;
     }
@@ -213,9 +235,14 @@ static gchar *make_conv_id(const char *type, const char *room, const char *pm_wi
 
 static bool entry_matches_mode(MsgEntry *e) {
     if (pm_mode && pm_target[0]) {
-        if (strcmp(e->type, "pm") != 0) return false;
-        return (strcmp(e->sender, pm_target) == 0) ||
-               (e->extra && strcmp(e->extra, pm_target) == 0);
+        if (strcmp(e->type, "pm") == 0)
+            return (strcmp(e->sender, pm_target) == 0) ||
+                   (e->extra && strcmp(e->extra, pm_target) == 0);
+        /* Also show file transfers in PM mode when they involve the PM target */
+        if (strcmp(e->type, "file") == 0)
+            return (strcmp(e->sender, pm_target) == 0) ||
+                   (e->extra && strcmp(e->extra, pm_target) == 0);
+        return false;
     }
     return (strcmp(e->type, "public") == 0 && g_strcmp0(e->extra, current_room) == 0) ||
            strcmp(e->type, "notify") == 0 ||
@@ -730,9 +757,7 @@ static void on_send(GtkWidget *w, gpointer d) {
         if (sscanf(t + 6, "%63s", r) == 1) {
             char l[128]; snprintf(l, sizeof(l), "JOIN|%s", r);
             client_send_raw(l);
-            strncpy(current_room, r, sizeof(current_room) - 1);
-            current_room[sizeof(current_room) - 1] = 0;
-            update_header_for_mode();
+            ui_add_notification("Joining room…");
         }
     } else if (t[0] == '/' && strncmp(t, "/create ", 8) == 0) {
         char r[64];
@@ -804,40 +829,48 @@ static void send_file_to(const char *target) {
         char *fn = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dlg));
         if (!fn) { gtk_widget_destroy(dlg); return; }
 
-        gchar *data = NULL;
-        gsize len = 0;
-        GError *err = NULL;
-        if (!g_file_get_contents(fn, &data, &len, &err)) {
-            ui_add_notification("Failed to read file");
-            if (err) g_error_free(err);
-            g_free(fn);
-            gtk_widget_destroy(dlg);
-            return;
-        }
-
         gchar *base = g_path_get_basename(fn);
-        const char *send_target = (target && target[0]) ? target : "";
-        client_send_file_offer(base, (long)len, send_target);
-
-        int mxc = 2048;
-        for (gsize off = 0; off < len; off += mxc) {
-            gsize chk = (off + (gsize)mxc < len) ? (gsize)mxc : (len - off);
-            gchar *b64 = g_base64_encode((guchar*)data + off, chk);
-            char line[4096 + 512];
-            snprintf(line, sizeof(line), "FILE_DATA|%s|%s", base, b64);
-            client_send_raw(line);
-            g_free(b64);
+        GStatBuf statbuf;
+        if (g_stat(fn, &statbuf) != 0 || statbuf.st_size < 0 || statbuf.st_size > MAX_FILE_SIZE) {
+            ui_add_notification("File is unavailable or exceeds the 64 MB limit");
+            g_free(base); g_free(fn); gtk_widget_destroy(dlg); return;
         }
-
-        char endline[512];
-        snprintf(endline, sizeof(endline), "FILE_END|%s", base);
-        client_send_raw(endline);
+        long len = (long)statbuf.st_size;
+        const char *send_target = (target && target[0]) ? target : "";
+        if (!client_send_file_offer(base, len, send_target)) {
+            ui_add_notification("Could not offer the file");
+            g_free(base); g_free(fn); gtk_widget_destroy(dlg); return;
+        }
 
         char info[512];
-        snprintf(info, sizeof(info), "Sent file '%s' (%ld bytes)", base, (long)len);
+        if (send_target[0]) {
+            clear_outgoing_file();
+            outgoing_file.path = fn;
+            outgoing_file.filename = base;
+            strncpy(outgoing_file.recipient, send_target, sizeof(outgoing_file.recipient) - 1);
+            outgoing_file.size = len;
+            snprintf(info, sizeof(info), "File offer sent to %s — waiting for acceptance", send_target);
+        } else {
+            /* Room-wide transfers retain the existing broadcast behaviour. */
+            gchar *data = NULL; gsize data_len = 0; GError *err = NULL;
+            if (!g_file_get_contents(fn, &data, &data_len, &err)) {
+                ui_add_notification("Failed to read file");
+                if (err) g_error_free(err);
+                g_free(base); g_free(fn); gtk_widget_destroy(dlg); return;
+            }
+            for (gsize off = 0; off < data_len; off += FILE_CHUNK_SIZE) {
+                gsize chunk = MIN((gsize)FILE_CHUNK_SIZE, data_len - off);
+                gchar *b64 = g_base64_encode((guchar *)data + off, chunk);
+                char line[4096 + 512];
+                snprintf(line, sizeof(line), "FILE_DATA|%s|%s", base, b64);
+                client_send_raw(line); g_free(b64);
+            }
+            char endline[512]; snprintf(endline, sizeof(endline), "FILE_END|%s", base);
+            client_send_raw(endline);
+            snprintf(info, sizeof(info), "Sent file '%s' to the room (%ld bytes)", base, len);
+            g_free(data); g_free(base); g_free(fn);
+        }
         ui_add_notification(info);
-
-        g_free(base); g_free(data); g_free(fn);
     }
     gtk_widget_destroy(dlg);
 }
@@ -927,9 +960,6 @@ static void on_user_clicked(GtkListBox *box, GtkListBoxRow *row, gpointer d) {
 }
 
 static void join_room(const char *name, const char *password) {
-    pm_mode = false; pm_target[0] = 0;
-    strncpy(current_room, name, sizeof(current_room) - 1);
-    current_room[sizeof(current_room) - 1] = 0;
     if (password && password[0]) {
         char cmd[256]; snprintf(cmd, sizeof(cmd), "JOIN|%s|%s", name, password);
         client_send_raw(cmd);
@@ -937,9 +967,7 @@ static void join_room(const char *name, const char *password) {
         char l[128]; snprintf(l, sizeof(l), "JOIN|%s", name);
         client_send_raw(l);
     }
-    update_header_for_mode();
-    gtk_entry_set_placeholder_text(GTK_ENTRY(entry_chat), "Type a message…");
-    rerender_chat();
+    ui_add_notification("Joining room…");
 }
 
 static void on_room_clicked(GtkListBox *box, GtkListBoxRow *row, gpointer d) {
@@ -1852,7 +1880,9 @@ void ui_show_file_offer(const char *sender, const char *filename, const char *si
     if (pending_find(filename)) return;
 
     long fsize = atol(size ? size : "0");
-    pending_add(sender, filename, fsize);
+    /* Determine if this is a private transfer */
+    bool is_pm_transfer = (target && target[0] && strcmp(target, "all") != 0);
+    pending_add(sender, filename, fsize, is_pm_transfer, is_pm_transfer ? sender : NULL);
 
     GtkWidget *dlg = gtk_dialog_new_with_buttons("Incoming File",
         GTK_WINDOW(win_main), GTK_DIALOG_MODAL,
@@ -1889,6 +1919,27 @@ void ui_show_file_offer(const char *sender, const char *filename, const char *si
     gtk_box_pack_start(GTK_BOX(head_text), head_text, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(c), head, FALSE, FALSE, 0);
 
+    /* Make the destination folder explicit so the user knows where the file
+     * will land if they accept and choose the default save folder. */
+    char *dflt_markup = g_strdup_printf(
+        "<span color='#8b949e' font='11px'>Default save folder: <tt>%s</tt></span>",
+        resolved_files_dir);
+    GtkWidget *dflt_lbl = gtk_label_new(NULL);
+    gtk_label_set_markup(GTK_LABEL(dflt_lbl), dflt_markup);
+    gtk_widget_set_halign(dflt_lbl, GTK_ALIGN_CENTER);
+    g_free(dflt_markup);
+    gtk_box_pack_start(GTK_BOX(c), dflt_lbl, FALSE, FALSE, 0);
+
+    /* Log the inbound offer so the user knows a file is on the way even if
+     * the dialog gets dismissed or another dialog is on top. */
+    {
+        char note[512];
+        snprintf(note, sizeof(note),
+                 "Incoming file '%s' (%s) from %s — choose Accept or Reject",
+                 filename, szbuf[0] ? szbuf : "unknown size", sender);
+        ui_add_notification(note);
+    }
+
     gtk_widget_show_all(dlg);
     int resp = gtk_dialog_run(GTK_DIALOG(dlg));
     gtk_widget_destroy(dlg);
@@ -1897,7 +1948,24 @@ void ui_show_file_offer(const char *sender, const char *filename, const char *si
     if (!pf) return;
 
     if (resp == GTK_RESPONSE_ACCEPT) {
+        GtkWidget *chooser = gtk_file_chooser_dialog_new("Choose save folder", GTK_WINDOW(win_main),
+            GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER, "_Cancel", GTK_RESPONSE_CANCEL,
+            "_Save here", GTK_RESPONSE_ACCEPT, NULL);
+        gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(chooser), resolved_files_dir);
+        int folder_response = gtk_dialog_run(GTK_DIALOG(chooser));
+        char *folder = folder_response == GTK_RESPONSE_ACCEPT ?
+            gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(chooser)) : NULL;
+        gtk_widget_destroy(chooser);
+        if (!folder) {
+            client_send_file_reject(sender, filename, "no save folder selected");
+            pending_remove(filename);
+            ui_add_notification("File transfer cancelled — no save folder selected");
+            return;
+        }
         pf->accepted = true;
+        g_snprintf(pf->tmp_path, sizeof(pf->tmp_path), "%s/%s.tmp", folder, filename);
+        g_snprintf(pf->final_path, sizeof(pf->final_path), "%s/%s", folder, filename);
+        g_free(folder);
         remove(pf->tmp_path);
         client_send_file_accept(sender, filename);
         char buf[512];
@@ -1929,6 +1997,9 @@ void ui_append_file_chunk(const char *filename, const char *base64) {
             snprintf(buf, sizeof(buf), "Receiving '%s': %d%%", filename, pct);
             gtk_label_set_text(GTK_LABEL(lbl_typing), buf);
         }
+    } else if (!pf->write_failed) {
+        pf->write_failed = true;
+        ui_add_notification("Could not write the incoming file to the selected folder");
     }
     g_free(decoded);
 }
@@ -1937,19 +2008,49 @@ void ui_finish_file(const char *filename) {
     PendingFile *pf = pending_find(filename);
     if (!pf) return;
     if (!pf->accepted) { pending_remove(filename); return; }
+    if (pf->write_failed) {
+        ui_add_notification("File transfer failed because the destination folder is not writable");
+        pending_remove(filename);
+        return;
+    }
 
     make_unique_path(pf->final_path, sizeof(pf->final_path), pf->final_path);
-    rename(pf->tmp_path, pf->final_path);
+    if (rename(pf->tmp_path, pf->final_path) != 0) {
+        ui_add_notification("Could not finish saving the incoming file");
+        pending_remove(filename);
+        return;
+    }
 
     char *fullpath = realpath(pf->final_path, NULL);
-    /* Build notification message with sender info (if known) */
+    /* Build notification message with sender info (if known) AND the actual
+     * saved path so the user knows where the file landed. */
     char txt[1024];
     if (fullpath && fullpath[0])
-        snprintf(txt, sizeof(txt), "%s sent a file: %s", pf->sender, filename);
+        snprintf(txt, sizeof(txt), "📎 %s sent a file: %s\nSaved to: %s",
+                 pf->sender, filename, fullpath);
     else
-        snprintf(txt, sizeof(txt), "File received: %s", filename ? filename : "unknown");
-    add_msg_entry(g_strdup("global"), "file", pf->sender, txt, "", filename ? filename : "",
-        fullpath ? fullpath : pf->final_path, pf->size);
+        snprintf(txt, sizeof(txt), "📎 File received: %s\nSaved to: %s",
+                 filename ? filename : "unknown", pf->final_path);
+    /* Use PM conversation ID for private transfers so the file shows in PM chat */
+    if (pf->is_pm && pf->pm_with[0]) {
+        gchar *pm_cid = make_conv_id("pm", NULL, pf->pm_with);
+        add_msg_entry(pm_cid, "file", pf->sender, txt, "", pf->pm_with,
+            fullpath ? fullpath : pf->final_path, pf->size);
+        g_free(pm_cid);
+    } else {
+        add_msg_entry(g_strdup("global"), "file", pf->sender, txt, "", filename ? filename : "",
+            fullpath ? fullpath : pf->final_path, pf->size);
+    }
+
+    /* Also surface a short notification with the path so it shows in the
+     * notification strip even if the chat scroll-back is dismissed. */
+    {
+        char note[1024];
+        const char *shown = fullpath ? fullpath : pf->final_path;
+        snprintf(note, sizeof(note),
+                 "File '%s' saved to: %s", filename ? filename : "?", shown);
+        ui_add_notification(note);
+    }
 
     if (fullpath) {
         MsgEntry *e = calloc(1, sizeof(MsgEntry));
@@ -1976,6 +2077,45 @@ void ui_on_file_rejected(const char *filename, const char *recipient, const char
     snprintf(buf, sizeof(buf), "File '%s' was rejected: %s",
         filename, reason && reason[0] ? reason : "no reason");
     ui_add_notification(buf);
+    if (outgoing_file.filename && strcmp(outgoing_file.filename, filename) == 0 &&
+        strcmp(outgoing_file.recipient, recipient ? recipient : "") == 0)
+        clear_outgoing_file();
+}
+
+void ui_send_accepted_file(const char *recipient, const char *filename) {
+    if (!outgoing_file.path || !outgoing_file.filename ||
+        strcmp(outgoing_file.filename, filename) != 0 ||
+        strcmp(outgoing_file.recipient, recipient) != 0)
+        return;
+
+    gchar *data = NULL; gsize len = 0; GError *err = NULL;
+    if (!g_file_get_contents(outgoing_file.path, &data, &len, &err)) {
+        ui_add_notification("Could not read the accepted file");
+        if (err) g_error_free(err);
+        clear_outgoing_file();
+        return;
+    }
+    for (gsize off = 0; off < len; off += FILE_CHUNK_SIZE) {
+        gsize chunk = MIN((gsize)FILE_CHUNK_SIZE, len - off);
+        gchar *b64 = g_base64_encode((guchar *)data + off, chunk);
+        char line[4096 + 512];
+        snprintf(line, sizeof(line), "FILE_DATA|%s|%s", filename, b64);
+        client_send_raw(line); g_free(b64);
+    }
+    char endline[512]; snprintf(endline, sizeof(endline), "FILE_END|%s", filename);
+    client_send_raw(endline);
+    /* Add a message entry on the sender's side so the sent file shows in PM chat */
+    {
+        char txt[1024];
+        snprintf(txt, sizeof(txt), "📎 You sent a file: %s (%ld bytes)", filename, outgoing_file.size);
+        gchar *pm_cid = make_conv_id("pm", NULL, recipient);
+        add_msg_entry(pm_cid, "file", current_user, txt, "", recipient, outgoing_file.path, outgoing_file.size);
+        g_free(pm_cid);
+    }
+    char notice[512]; snprintf(notice, sizeof(notice), "Sent '%s' to %s", filename, recipient);
+    ui_add_notification(notice);
+    g_free(data);
+    clear_outgoing_file();
 }
 
 static void update_files_list(void) {
@@ -2144,6 +2284,17 @@ void ui_update_room_list(const char *csv, int count) {
     (void)count;
     if (!lst_rooms) return;
     update_room_list_widget(lst_rooms, csv);
+}
+
+void ui_joined_room(const char *room) {
+    if (!room || !room[0]) return;
+    pm_mode = false;
+    pm_target[0] = 0;
+    strncpy(current_room, room, sizeof(current_room) - 1);
+    current_room[sizeof(current_room) - 1] = 0;
+    update_header_for_mode();
+    if (entry_chat) gtk_entry_set_placeholder_text(GTK_ENTRY(entry_chat), "Type a message…");
+    rerender_chat();
 }
 
 void ui_run(void) { gtk_main(); }

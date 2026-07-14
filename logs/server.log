@@ -94,3 +94,110 @@
 [2026-07-06 14:01:40] [MSG] [general] saroj: how are you?
 [2026-07-06 14:01:44] [MSG] [general] subesh: i'm fine ad ou?
 [2026-07-06 14:01:49] [MSG] [general] subesh: helo
+[2026-07-14 02:07:22] [INFO] Admin creds loaded: user=admin
+[2026-07-14 02:07:22] [INFO] Loaded 3 user accounts
+[2026-07-14 02:07:22] [INFO] Server started on port 8080
+[2026-07-14 02:07:31] [INFO] User 'alice' logged in from 127.0.0.1
+[2026-07-14 02:07:36] [FILE] alice offered file 'lab2.pdf' (720147 bytes) to all
+[2026-07-14 02:07:58] [INFO] User 'admin' logged in from 127.0.0.1
+[2026-07-14 02:08:08] [FILE] admin offered file 'lab2.pdf' (720147 bytes) to alice
+[2026-07-14 02:08:31] [PRIV] admin -> alice: hlo
+[2026-07-14 02:08:35] [INFO] User 'alice' disconnected
+[2026-07-14 02:08:42] [INFO] User 'alice' logged in from 127.0.0.1
+[2026-07-14 02:08:50] [FILE] alice offered file 'lab2.pdf' (720147 bytes) to admin
+[2026-07-14 02:09:12] [PRIV] admin -> alice: glo
+[2026-07-14 02:09:14] [FILE] admin offered file 'c' (307 bytes) to alice
+[2026-07-14 02:09:31] [CTRL] Announcement: hello
+[2026-07-14 02:09:43] [CTRL] Announcement: hello 
+[2026-07-14 02:09:49] [INFO] User 'alice' disconnected
+[2026-07-14 02:09:50] [INFO] User 'admin' disconnected
+[2026-07-14 15:19:25] [INFO] Admin creds loaded: user=admin
+[2026-07-14 15:19:25] [INFO] Loaded 3 user accounts
+[2026-07-14 15:19:25] [INFO] Server started on port 8080
+[2026-07-14 15:19:37] [INFO] User 'admin' logged in from 127.0.0.1
+[2026-07-14 15:19:55] [INFO] User 'alice' logged in from 127.0.0.1
+[2026-07-14 15:20:14] [MSG] [general] admin: hello
+[2026-07-14 15:20:33] [PRIV] alice -> admin: hello
+[2026-07-14 15:20:48] [INFO] User 'admin' disconnected
+[2026-07-14 15:20:55] [INFO] User 'admin' logged in from 127.0.0.1
+[2026-07-14 15:21:00] [FILE] admin offered file 'lab2.pdf' (720147 bytes) to alice
+[2026-07-14 15:21:45] [FILE] alice offered file 'lab2.pdf' (720147 bytes) to admin
+[2026-07-14 15:22:29] [INFO] User 'admin' disconnected
+[2026-07-14 15:22:30] [INFO] User 'alice' disconnected
+[2026-07-14 15:30:47] [INFO] User 'alice' logged in from 127.0.0.1
+[2026-07-14 15:30:47] [INFO] Admin creds loaded: user=admin
+[2026-07-14 15:30:47] [INFO] Loaded 3 user accounts
+[2026-07-14 15:30:47] [INFO] User 'bob' logged in from 127.0.0.1
+[2026-07-14 15:30:47] [INFO] User 'charlie' logged in from 127.0.0.1
+[2026-07-14 15:30:48] [FILE] alice offered file 'report.txt' (1050 bytes) to bob
+[2026-07-14 15:30:54] [INFO] User 'bob' disconnected
+[2026-07-14 15:30:54] [INFO] User 'alice' disconnected
+[2026-07-14 15:30:54] [INFO] User 'charlie' disconnected
+[2026-07-14 15:31:06] [INFO] Server shutting down
+[2026-07-14 15:59:10] [INFO] Admin creds loaded: user=admin
+[2026-07-14 15:59:10] [INFO] Loaded 3 user accounts
+[2026-07-14 15:59:10] [INFO] Server started on port 8080
+[2026-07-14 15:59:10] [INFO] User 'alice' logged in from 127.0.0.1
+[2026-07-14 15:59:11] [INFO] User 'bob' logged in from 127.0.0.1
+[2026-07-14 15:59:11] [INFO] User 'charlie' logged in from 127.0.0.1
+[2026-07-14 15:59:11] [FILE] alice offered file 'report.txt' (1050 bytes) to bob
+[2026-07-14 15:59:14] [FILE] bob accepted file 'report.txt' from alice
+[2026-07-14 15:59:17] [FILE] alice offered file 'secret.pdf' (1024 bytes) to bob
+[2026-07-14 15:59:17] [FILE] bob rejected file 'secret.pdf' from alice: not interested
+[2026-07-14 15:59:19] [FILE] alice offered file 'public.txt' (5 bytes) to all
+[2026-07-14 15:59:20] [INFO] Server shutting down
+[2026-07-14 15:59:38] [INFO] Admin creds loaded: user=admin
+[2026-07-14 15:59:38] [INFO] Loaded 2 user accounts
+[2026-07-14 15:59:38] [INFO] Server started on port 8080
+[2026-07-14 15:59:39] [INFO] User 'alice' logged in from 127.0.0.1
+[2026-07-14 15:59:39] [INFO] User 'bob' logged in from 127.0.0.1
+[2026-07-14 15:59:40] [MSG] [general] alice: hello everyone
+[2026-07-14 15:59:40] [PRIV] bob -> alice: hi alice
+[2026-07-14 15:59:40] [INFO] User 'bob' disconnected
+[2026-07-14 15:59:41] [INFO] User 'alice' disconnected
+[2026-07-14 15:59:41] [INFO] Server shutting down
+[2026-07-14 16:01:47] [INFO] Admin creds loaded: user=admin
+[2026-07-14 16:01:47] [INFO] Loaded 2 user accounts
+[2026-07-14 16:01:47] [INFO] Server started on port 8080
+[2026-07-14 16:02:03] [INFO] User 'alice' logged in from 127.0.0.1
+[2026-07-14 16:02:13] [INFO] User 'admin' logged in from 127.0.0.1
+[2026-07-14 16:02:22] [PRIV] alice -> admin: hello bro
+[2026-07-14 16:02:26] [MSG] [general] admin: hello
+[2026-07-14 16:02:38] [MSG] [general] admin: hello
+[2026-07-14 16:02:43] [PRIV] alice -> admin: hi
+[2026-07-14 16:02:51] [PRIV] alice -> admin: hi
+[2026-07-14 16:02:57] [MSG] [general] admin: jlkjdsl
+[2026-07-14 16:03:24] [PRIV] admin -> alice: hello
+[2026-07-14 16:03:28] [FILE] admin offered file 'lab2.pdf' (720147 bytes) to alice
+[2026-07-14 16:03:34] [FILE] alice accepted file 'lab2.pdf' from admin
+[2026-07-14 16:04:40] [INFO] User 'admin' disconnected
+[2026-07-14 16:11:29] [INFO] Admin creds loaded: user=admin
+[2026-07-14 16:11:29] [INFO] Loaded 2 user accounts
+[2026-07-14 16:11:29] [INFO] Server started on port 8080
+[2026-07-14 16:11:36] [INFO] Admin creds loaded: user=admin
+[2026-07-14 16:11:36] [INFO] Loaded 2 user accounts
+[2026-07-14 16:11:51] [INFO] User 'admin' logged in from 127.0.0.1
+[2026-07-14 16:12:01] [INFO] User 'alice' logged in from 127.0.0.1
+[2026-07-14 16:12:13] [PRIV] alice -> admin: hlo
+[2026-07-14 16:12:20] [PRIV] admin -> alice: hello
+[2026-07-14 16:12:34] [FILE] admin offered file 'file1.c' (311 bytes) to alice
+[2026-07-14 16:12:44] [FILE] alice accepted file 'file1.c' from admin
+[2026-07-14 16:13:21] [INFO] Admin created user 'abc'
+[2026-07-14 16:13:36] [MSG] [guff] admin: hello
+[2026-07-14 16:13:56] [MSG] [guff] alice: helo
+[2026-07-14 16:16:00] [INFO] User 'alice' disconnected
+[2026-07-14 16:16:02] [INFO] User 'admin' disconnected
+[2026-07-14 16:25:47] [INFO] Server shutting down
+[2026-07-14 16:26:01] [INFO] Admin creds loaded: user=admin
+[2026-07-14 16:26:01] [INFO] Loaded 3 user accounts
+[2026-07-14 16:26:01] [INFO] Server started on port 8080
+[2026-07-14 16:26:09] [INFO] User 'alice' logged in from 127.0.0.1
+[2026-07-14 16:26:33] [INFO] User 'admin' logged in from 127.0.0.1
+[2026-07-14 16:27:12] [MSG] [guff] alice: hello
+[2026-07-14 16:27:22] [MSG] [guff] admin: hi
+[2026-07-14 16:27:25] [MSG] [guff] admin: ok
+[2026-07-14 16:27:41] [MSG] [guff] alice: hey
+[2026-07-14 16:27:58] [FILE] admin offered file 'c' (307 bytes) to alice
+[2026-07-14 16:28:04] [FILE] alice accepted file 'c' from admin
+[2026-07-14 16:28:21] [INFO] User 'admin' disconnected
+[2026-07-14 16:28:22] [INFO] User 'alice' disconnected

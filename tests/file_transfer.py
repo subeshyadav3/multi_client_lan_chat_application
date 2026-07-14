@@ -131,7 +131,12 @@ def main():
         assert charlie.wait_for("FILE_OFFER|") is None, "charlie should not get offer"
         print("[OK] direct offer routed only to bob")
 
-        # ── Test 2: send FILE_DATA chunks (raw client format) ──
+        # ── Test 2: recipient accepts before data is sent ──
+        bob.send(f"FILE_ACCEPT|alice|{filename}")
+        accepted = alice.expect("FILE_ACCEPT|")
+        assert "bob" in accepted and filename in accepted, accepted
+
+        # Send FILE_DATA chunks after the acceptance handshake.
         chunk_size = 200
         for off in range(0, len(payload), chunk_size):
             chunk = payload[off:off + chunk_size]

@@ -23,7 +23,8 @@ static void parse_pipe(const char *msg, char out[][256], int max) {
 }
 
 typedef struct {
-    char msg[2048];
+    /* File chunks can be almost BUFFER_SIZE bytes after base64 encoding. */
+    char msg[BUFFER_SIZE];
 } DispatchMsg;
 
 static gboolean process_on_main_thread(gpointer data) {
@@ -37,8 +38,17 @@ static gboolean process_on_main_thread(gpointer data) {
         ui_append_private_message(p[1], p[2], p[3], p[4][0] ? p[4] : NULL);
     else if (strcmp(p[0], "ANNOUNCE") == 0 && p[2][0])
         ui_append_announcement(p[2], p[3][0] ? p[3] : NULL);
-    else if (strcmp(p[0], "NOTIFY") == 0)
+    else if (strcmp(p[0], "NOTIFY") == 0) {
         ui_add_notification(p[1]);
+        /* Defensive: whenever a user joins or leaves the chat, ask the server
+         * for a fresh USERS list so the sidebar stays in sync even if the
+         * pushed broadcast USERS is missed or processed late. */
+        if (p[1][0]) {
+            const char *joined = strstr(p[1], "joined the chat");
+            const char *left   = strstr(p[1], "left the chat");
+            if (joined || left) client_send_raw("LIST_USERS");
+        }
+    }
     else if (strcmp(p[0], "TYPING") == 0 && p[1][0])
         ui_show_typing(p[1], p[2]);
     else if (strcmp(p[0], "LOGIN_OK") == 0)
@@ -49,8 +59,10 @@ static gboolean process_on_main_thread(gpointer data) {
         ui_update_user_list(p[1], 0);
     else if (strcmp(p[0], "ROOMS") == 0)
         ui_update_room_list(p[1], 0);
-    else if (strcmp(p[0], "JOIN_OK") == 0)
+    else if (strcmp(p[0], "JOIN_OK") == 0) {
+        ui_joined_room(p[1][0] ? p[1] : "general");
         ui_add_notification(p[1][0] ? p[1] : "Joined room");
+    }
     else if (strcmp(p[0], "JOIN_FAIL") == 0)
         ui_add_notification(p[1][0] ? p[1] : "Failed to join room");
     else if (strcmp(p[0], "ROOM_CREATED") == 0) {
@@ -96,6 +108,9 @@ static gboolean process_on_main_thread(gpointer data) {
     } else if (strcmp(p[0], "FILE_REJECT") == 0 && p[1][0] && p[2][0]) {
         /* FILE_REJECT|recipient|filename|reason */
         ui_on_file_rejected(p[2], p[1], p[3]);
+    } else if (strcmp(p[0], "FILE_ACCEPT") == 0 && p[1][0] && p[2][0]) {
+        /* FILE_ACCEPT|recipient|filename */
+        ui_send_accepted_file(p[1], p[2]);
     }
 
     g_free(d);

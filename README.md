@@ -34,6 +34,19 @@ cd ConnectHub
 make clean && make
 ```
 
+### Windows (recommended: MSYS2 UCRT64)
+
+The standalone `C:\MinGW` compiler is not sufficient for this project because it does not include the POSIX thread and GTK3 development environment. Install MSYS2, open **MSYS2 UCRT64**, then run:
+
+```bash
+pacman -Syu
+pacman -S --needed base-devel python mingw-w64-ucrt-x86_64-toolchain mingw-w64-ucrt-x86_64-gtk3
+cd /f/Study/6\ th\ sem/system/ConnectHub
+make clean && make
+```
+
+MSYS2 currently provides GTK3 through `mingw-w64-ucrt-x86_64-gtk3`. [MSYS2 package details](https://packages.msys2.org/packages/mingw-w64-ucrt-x86_64-gtk3)
+
 After building, the executables are placed in `bin/`:
 
 ```bash
@@ -71,7 +84,7 @@ ls bin/
 | `/resetpass <user> <password>` | Admin only: reset a user's password |
 | `/listaccounts` | Admin only: list registered accounts |
 
-Click a user in the sidebar to open their profile and start a private message or send a file directly.
+Click a user in the sidebar to open their profile and start a private message or send a file directly. Direct files are only sent after the recipient accepts the offer; the recipient chooses the destination folder before the transfer starts. The attachment button in a room shares a file with everyone in that room.
 
 ## Documentation
 
@@ -87,6 +100,15 @@ python3 tests/smoke.py
 
 Expected output: `SMOKE TEST PASSED`.
 
+For the complete automated check, run both tests after building:
+
+```bash
+python tests/smoke.py
+python tests/file_transfer.py
+```
+
+The file-transfer test now checks the accept-before-send handshake as well as direct routing and rejection.
+
 ## Features
 
 - Username/password authentication with duplicate prevention
@@ -95,8 +117,8 @@ Expected output: `SMOKE TEST PASSED`.
 - Real-time online user list with profile cards
 - Typing indicators
 - File transfer with base64 chunks
-  - Send files to everyone or to a specific user
-  - Incoming file accept/reject dialog
+  - Send a private file to a selected user, or share a file with the current room
+  - Incoming file accept/reject dialog and destination-folder picker
   - Transfer progress notifications
   - Received-files list in the sidebar with one-click Open
   - Automatic filename collision handling

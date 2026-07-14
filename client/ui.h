@@ -13,6 +13,7 @@ void ui_append_private_message(const char *sender, const char *recipient, const 
 void ui_append_announcement(const char *text, const char *timestamp);
 void ui_update_user_list(const char *users_csv, int count);
 void ui_update_room_list(const char *rooms_csv, int count);
+void ui_joined_room(const char *room);
 void ui_add_notification(const char *text);
 void ui_show_typing(const char *room, const char *username);
 void ui_run(void);
@@ -22,5 +23,6 @@ void ui_show_file_offer(const char *sender, const char *filename, const char *si
 void ui_append_file_chunk(const char *filename, const char *base64);
 void ui_finish_file(const char *filename);
 void ui_on_file_rejected(const char *filename, const char *recipient, const char *reason);
+void ui_send_accepted_file(const char *recipient, const char *filename);
 
 #endif

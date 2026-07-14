@@ -224,6 +224,8 @@ static Client *client_find(const char *username);
 static void broadcast_room(const char *room, const char *msg, Client *except);
 static void broadcast(const char *msg, Client *except);
 static void send_to_user(const char *username, const char *msg);
+static void broadcast_user_list(void);
+static void broadcast_room_list(void);
 static void get_timestamp(char *buf, size_t len);
 static void server_shutdown(void);
 static void signal_handler(int sig);
@@ -300,8 +302,32 @@ static void *handle_client(void *arg) {
         for (ssize_t i = 0; i < n; i++) {
             if (buf[i] == '\n') {
                 line[line_len] = '\0';
+
+                /* Split by | preserving empty fields (sscanf %[^|] can't handle
+                 * consecutive pipes which breaks CREATE_ROOM with empty desc). */
+                char *tokens[5] = {NULL};
+                int parts = 0;
+                {
+                    char copy[BUFFER_SIZE];
+                    strncpy(copy, line, sizeof(copy) - 1);
+                    copy[sizeof(copy) - 1] = '\0';
+                    char *p = copy;
+                    while (parts < 5) {
+                        char *pipe = strchr(p, '|');
+                        if (pipe) *pipe = '\0';
+                        tokens[parts] = strdup(p);
+                        parts++;
+                        if (pipe) p = pipe + 1;
+                        else break;
+                    }
+                }
                 char cmd[64] = {0}, arg1[256] = {0}, arg2[MAX_MESSAGE] = {0}, arg3[256] = {0}, arg4[256] = {0};
-                int parts = sscanf(line, "%63[^|]|%255[^|]|%2047[^|]|%255[^|]|%255[^\n]", cmd, arg1, arg2, arg3, arg4);
+                if (parts >= 1 && tokens[0]) strncpy(cmd,  tokens[0], sizeof(cmd)-1);
+                if (parts >= 2 && tokens[1]) strncpy(arg1, tokens[1], sizeof(arg1)-1);
+                if (parts >= 3 && tokens[2]) strncpy(arg2, tokens[2], sizeof(arg2)-1);
+                if (parts >= 4 && tokens[3]) strncpy(arg3, tokens[3], sizeof(arg3)-1);
+                if (parts >= 5 && tokens[4]) strncpy(arg4, tokens[4], sizeof(arg4)-1);
+                for (int ti = 0; ti < parts; ti++) free(tokens[ti]);
 
                 char ts[32]; get_timestamp(ts, sizeof(ts));
 
@@ -357,6 +383,7 @@ static void *handle_client(void *arg) {
                         send(c->sockfd, ok, strlen(ok), 0);
                         char notify[256]; snprintf(notify, sizeof(notify), "NOTIFY|%s has joined the chat.\n", arg1);
                         broadcast(notify, NULL);
+                        broadcast_user_list();
                         log_message("INFO", "User '%s' logged in from %s", arg1, inet_ntoa(c->addr.sin_addr));
                     }
                 } else if (strcmp(cmd, "PUBLIC") == 0 && parts >= 2) {
@@ -383,7 +410,11 @@ static void *handle_client(void *arg) {
                     const char *room_name = arg1;
                     const char *password = (parts >= 3) ? arg2 : "";
 
-                    if (room_is_protected(room_name) && !c->is_admin) {
+                    if (!room_exists(room_name)) {
+                        char err[256];
+                        snprintf(err, sizeof(err), "JOIN_FAIL|Room '%s' does not exist\n", room_name);
+                        send(c->sockfd, err, strlen(err), 0);
+                    } else if (room_is_protected(room_name) && !c->is_admin) {
                         if (!password[0] || !room_check_password(room_name, password)) {
                             char err[256];
                             snprintf(err, sizeof(err), "JOIN_FAIL|Room '%s' requires password\n", room_name);
@@ -415,10 +446,12 @@ static void *handle_client(void *arg) {
                     snprintf(msg, sizeof(msg), "NOTIFY|%s left room %s.\n", c->username, arg1);
                     broadcast(msg, NULL);
                 } else if (strcmp(cmd, "CREATE") == 0 && parts >= 2) {
-                    room_create(arg1);
-                    char msg[256];
-                    snprintf(msg, sizeof(msg), "NOTIFY|Room '%s' created by %s.\n", arg1, c->username);
-                    broadcast(msg, NULL);
+                    if (room_create(arg1)) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg), "NOTIFY|Room '%s' created by %s.\n", arg1, c->username);
+                        broadcast(msg, NULL);
+                        broadcast_room_list();
+                    }
                 } else if (strcmp(cmd, "CREATE_ROOM") == 0 && parts >= 2) {
                     /* CREATE_ROOM|name|title|desc|password */
                     const char *rn = arg1;
@@ -429,6 +462,7 @@ static void *handle_client(void *arg) {
                         char msg[256];
                         snprintf(msg, sizeof(msg), "NOTIFY|Room '%s' created by %s.\n", rn, c->username);
                         broadcast(msg, NULL);
+                        broadcast_room_list();
                         char ok[128];
                         snprintf(ok, sizeof(ok), "ROOM_CREATED|%s\n", rn);
                         send(c->sockfd, ok, strlen(ok), 0);
@@ -450,6 +484,7 @@ static void *handle_client(void *arg) {
                             }
                         }
                         pthread_mutex_unlock(&client_mutex);
+                        broadcast_room_list();
                     } else {
                         char err[256];
                         snprintf(err, sizeof(err), "ERROR|Cannot delete room '%s' (not found or not authorized)\n", arg1);
@@ -558,6 +593,14 @@ static void *handle_client(void *arg) {
                         transfer_remove(arg1, arg2);
                         log_message("FILE", "%s rejected file '%s' from %s: %s", c->username, arg2, arg1, arg3);
                     }
+                } else if (strcmp(cmd, "FILE_ACCEPT") == 0 && parts >= 2) {
+                    FileTransfer *t = transfer_find(arg1, arg2);
+                    if (t && strcmp(t->recipient, c->username) == 0) {
+                        char msg[512];
+                        snprintf(msg, sizeof(msg), "FILE_ACCEPT|%s|%s\n", c->username, arg2);
+                        send_to_user(arg1, msg);
+                        log_message("FILE", "%s accepted file '%s' from %s", c->username, arg2, arg1);
+                    }
                 } else if (strcmp(cmd, "CREATE_USER") == 0 && parts >= 3 && c->is_admin) {
                     pthread_mutex_lock(&user_mutex);
                     if (user_create(arg1, arg2)) {
@@ -636,6 +679,7 @@ static void *handle_client(void *arg) {
         char notify[256];
         snprintf(notify, sizeof(notify), "NOTIFY|%s has left the chat.\n", c->username);
         broadcast(notify, NULL);
+        broadcast_user_list();
         log_message("INFO", "User '%s' disconnected", c->username);
     }
     close(c->sockfd);
@@ -702,6 +746,29 @@ static void send_to_user(const char *username, const char *msg) {
         send(c->sockfd, msg, strlen(msg), 0);
     }
     pthread_mutex_unlock(&client_mutex);
+}
+
+static void broadcast_user_list(void) {
+    char userlist[MAX_MESSAGE] = {0};
+    pthread_mutex_lock(&client_mutex);
+    for (Client *p = client_list; p; p = p->next) {
+        if (!p->active) continue;
+        if (userlist[0]) strncat(userlist, ",", sizeof(userlist) - strlen(userlist) - 1);
+        strncat(userlist, p->username, sizeof(userlist) - strlen(userlist) - 1);
+        strncat(userlist, ":1", sizeof(userlist) - strlen(userlist) - 1);
+    }
+    pthread_mutex_unlock(&client_mutex);
+    char out[MAX_MESSAGE + 64];
+    snprintf(out, sizeof(out), "USERS|%s\n", userlist);
+    broadcast(out, NULL);
+}
+
+static void broadcast_room_list(void) {
+    char rooms[MAX_MESSAGE] = {0};
+    room_list(rooms, sizeof(rooms));
+    char out[MAX_MESSAGE + 64];
+    snprintf(out, sizeof(out), "ROOMS|%s\n", rooms);
+    broadcast(out, NULL);
 }
 
 static void get_timestamp(char *buf, size_t len) {
