@@ -269,6 +269,41 @@ static bool user_reset_pass(const char *name, const char *newpass) {
     return true;
 }
 
+/* ── Room access tracking (password only needed on first join) ── */
+typedef struct RoomAccess {
+    char username[MAX_USERNAME];
+    char room[MAX_ROOM_NAME];
+    struct RoomAccess *next;
+} RoomAccess;
+
+static RoomAccess *room_access_list = NULL;
+static pthread_mutex_t room_access_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static bool room_has_access(const char *username, const char *room) {
+    pthread_mutex_lock(&room_access_mutex);
+    for (RoomAccess *a = room_access_list; a; a = a->next) {
+        if (strcmp(a->username, username) == 0 && strcmp(a->room, room) == 0) {
+            pthread_mutex_unlock(&room_access_mutex);
+            return true;
+        }
+    }
+    pthread_mutex_unlock(&room_access_mutex);
+    return false;
+}
+
+static void room_grant_access(const char *username, const char *room) {
+    if (room_has_access(username, room)) return;
+    pthread_mutex_lock(&room_access_mutex);
+    RoomAccess *a = calloc(1, sizeof(RoomAccess));
+    if (a) {
+        strncpy(a->username, username, MAX_USERNAME - 1);
+        strncpy(a->room, room, MAX_ROOM_NAME - 1);
+        a->next = room_access_list;
+        room_access_list = a;
+    }
+    pthread_mutex_unlock(&room_access_mutex);
+}
+
 static void load_admin_creds(void) {
     FILE *f = fopen("config/admin.cred", "r");
     if (!f) {
@@ -490,10 +525,23 @@ static void *handle_client(void *arg) {
                         snprintf(err, sizeof(err), "JOIN_FAIL|Room '%s' does not exist\n", room_name);
                         send(c->sockfd, err, strlen(err), 0);
                     } else if (room_is_protected(room_name) && !c->is_admin) {
-                        if (!password[0] || !room_check_password(room_name, password)) {
-                            char err[256];
-                            snprintf(err, sizeof(err), "JOIN_FAIL|Room '%s' requires password\n", room_name);
-                            send(c->sockfd, err, strlen(err), 0);
+                        if (!room_has_access(c->username, room_name)) {
+                            if (!password[0] || !room_check_password(room_name, password)) {
+                                char err[256];
+                                snprintf(err, sizeof(err), "JOIN_FAIL|Room '%s' requires password\n", room_name);
+                                send(c->sockfd, err, strlen(err), 0);
+                            } else {
+                                room_grant_access(c->username, room_name);
+                                strncpy(c->current_room, room_name, MAX_ROOM_NAME-1);
+                                c->current_room[MAX_ROOM_NAME-1] = '\0';
+                                history_replay(c->sockfd, room_name);
+                                char ok[128];
+                                snprintf(ok, sizeof(ok), "JOIN_OK|%s\n", room_name);
+                                send(c->sockfd, ok, strlen(ok), 0);
+                                char msg[256];
+                                snprintf(msg, sizeof(msg), "NOTIFY|%s joined room %s.\n", c->username, room_name);
+                                broadcast_room(room_name, msg, NULL);
+                            }
                         } else {
                             strncpy(c->current_room, room_name, MAX_ROOM_NAME-1);
                             c->current_room[MAX_ROOM_NAME-1] = '\0';
@@ -735,12 +783,12 @@ static void *handle_client(void *arg) {
                     pthread_mutex_lock(&user_mutex);
                     for (UserAccount *u = user_list; u; u = u->next) {
                         if (!u->active) continue;
-                        if (buf[0]) strncat(buf, ", ", sizeof(buf)-strlen(buf)-1);
+                        if (buf[0]) strncat(buf, ",", sizeof(buf)-strlen(buf)-1);
                         strncat(buf, u->username, sizeof(buf)-strlen(buf)-1);
                     }
                     pthread_mutex_unlock(&user_mutex);
                     char out[4096];
-                    snprintf(out, sizeof(out), "ANNOUNCE|Registered users: %s\n", buf[0] ? buf : "(none)");
+                    snprintf(out, sizeof(out), "ACCOUNT_LIST|%s\n", buf[0] ? buf : "");
                     send(c->sockfd, out, strlen(out), 0);
                 } else if (strcmp(cmd, "STATUS") == 0 && parts >= 2) {
                     c->status = atoi(arg1);

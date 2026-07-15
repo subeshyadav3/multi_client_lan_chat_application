@@ -73,6 +73,8 @@ static gboolean process_on_main_thread(gpointer data) {
     } else if (strcmp(p[0], "KICK") == 0) {
         ui_add_notification("You were kicked by the administrator.");
         client_disconnect();
+    } else if (strcmp(p[0], "ACCOUNT_LIST") == 0) {
+        ui_on_account_list(p[1]);
     } else if (strcmp(p[0], "ERROR") == 0) {
         ui_add_notification(p[1][0] ? p[1] : "Server error");
     } else if (strcmp(p[0], "FILE_OFFER") == 0 && p[1][0] && p[2][0]) {

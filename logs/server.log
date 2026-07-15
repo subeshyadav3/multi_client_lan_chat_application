@@ -231,3 +231,21 @@
 [2026-07-15 11:52:37] [INFO] User 'alice' disconnected
 [2026-07-15 11:52:38] [INFO] User 'admin' disconnected
 [2026-07-15 11:52:46] [INFO] Server shutting down
+[2026-07-15 12:29:00] [INFO] Admin creds loaded: user=admin
+[2026-07-15 12:29:01] [INFO] Loaded 3 user accounts
+[2026-07-15 12:29:01] [INFO] Server started on port 8080
+[2026-07-15 12:29:14] [INFO] User 'alice' logged in from 127.0.0.1
+[2026-07-15 12:29:36] [INFO] User 'admin' logged in from 127.0.0.1
+[2026-07-15 12:32:31] [PRIV] admin -> alice: hello
+[2026-07-15 12:32:36] [PRIV] alice -> admin: hi how ar eyou
+[2026-07-15 12:32:41] [FILE] alice offered file 'file1.c' (311 bytes) to admin
+[2026-07-15 12:32:45] [FILE] admin accepted file 'file1.c' from alice
+[2026-07-15 12:33:31] [MSG] [general] admin: dgdfg
+[2026-07-15 12:33:37] [MSG] [general] alice: bvb
+[2026-07-15 12:34:04] [MSG] [guff] alice: dfgdfgdfg
+[2026-07-15 12:34:12] [MSG] [guff] admin: ghhgh
+[2026-07-15 12:34:36] [INFO] Admin created user 'saroj'
+[2026-07-15 12:35:10] [CTRL] Announcement: who are you?
+[2026-07-15 12:35:33] [INFO] User 'alice' disconnected
+[2026-07-15 12:35:40] [INFO] User 'admin' disconnected
+[2026-07-15 12:35:44] [INFO] Server shutting down

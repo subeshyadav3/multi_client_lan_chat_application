@@ -244,11 +244,17 @@ static bool entry_matches_mode(MsgEntry *e) {
                    (e->extra && strcmp(e->extra, pm_target) == 0);
         return false;
     }
-    return (strcmp(e->type, "public") == 0 && g_strcmp0(e->extra, current_room) == 0) ||
-           strcmp(e->type, "notify") == 0 ||
-           strcmp(e->type, "announce") == 0 ||
-           strcmp(e->type, "file") == 0 ||
-           strcmp(e->type, "system") == 0;
+    if (strcmp(e->type, "public") == 0)
+        return e->extra && g_strcmp0(e->extra, current_room) == 0;
+    /* Notifications with a room context (e.g. "user joined room X") only
+       show in that room. Global notifications show everywhere. */
+    if (strcmp(e->type, "notify") == 0)
+        return !e->extra || !e->extra[0] || g_strcmp0(e->extra, current_room) == 0;
+    if (strcmp(e->type, "announce") == 0 || strcmp(e->type, "system") == 0)
+        return true;
+    if (strcmp(e->type, "file") == 0)
+        return true;
+    return false;
 }
 
 /* ── forward declarations ── */
@@ -257,6 +263,7 @@ static void on_file_row_clicked(GtkListBox *box, GtkListBoxRow *row, gpointer d)
 static void on_user_clicked(GtkListBox *box, GtkListBoxRow *row, gpointer d);
 static void on_room_clicked(GtkListBox *box, GtkListBoxRow *row, gpointer d);
 static void on_back_to_room(GtkWidget *w, gpointer d);
+static void on_admin_panel(GtkWidget *w, gpointer d);
 static void on_create_room(GtkWidget *w, gpointer d);
 static gboolean on_entry_keypress(GtkWidget *w, GdkEventKey *e, gpointer d);
 static void update_statusbar(void);
@@ -608,7 +615,7 @@ static void rerender_chat(void) {
         }
 
         if (row) {
-            gtk_list_box_prepend(GTK_LIST_BOX(lst_chat), row);
+            gtk_list_box_insert(GTK_LIST_BOX(lst_chat), row, -1);
         }
     }
     gtk_widget_show_all(GTK_WIDGET(lst_chat));
@@ -911,48 +918,6 @@ static void open_pm(const char *name) {
     rerender_chat();
 }
 
-static void show_profile(const char *name) {
-    if (!name || !name[0] || strcmp(name, current_user) == 0) return;
-
-    GtkWidget *dlg = gtk_dialog_new_with_buttons(NULL,
-        GTK_WINDOW(win_main), GTK_DIALOG_MODAL,
-        "_Send Message", GTK_RESPONSE_ACCEPT,
-        "Send _File",    100,
-        "_Close",        GTK_RESPONSE_REJECT, NULL);
-    gtk_window_set_title(GTK_WINDOW(dlg), "User Profile");
-    gtk_window_set_resizable(GTK_WINDOW(dlg), FALSE);
-    GtkWidget *c = gtk_dialog_get_content_area(GTK_DIALOG(dlg));
-    gtk_container_set_border_width(GTK_CONTAINER(c), 28);
-    gtk_box_set_spacing(GTK_BOX(c), 12);
-
-    GtkWidget *av = make_avatar(name, 80);
-    gtk_widget_set_halign(av, GTK_ALIGN_CENTER);
-    gtk_box_pack_start(GTK_BOX(c), av, FALSE, FALSE, 0);
-
-    char *nm = g_strdup_printf("<span font='20px' font_weight='700' color='#e6edf3'>%s</span>", name);
-    GtkWidget *nl = gtk_label_new(NULL);
-    gtk_label_set_markup(GTK_LABEL(nl), nm);
-    g_free(nm);
-    gtk_widget_set_halign(nl, GTK_ALIGN_CENTER);
-    gtk_box_pack_start(GTK_BOX(c), nl, FALSE, FALSE, 0);
-
-    GtkWidget *status_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-    gtk_widget_set_halign(status_row, GTK_ALIGN_CENTER);
-    GtkWidget *dot = gtk_label_new(NULL);
-    gtk_label_set_markup(GTK_LABEL(dot), "<span color='#3fb950' font='14px'>●</span>");
-    gtk_box_pack_start(GTK_BOX(status_row), dot, FALSE, FALSE, 0);
-    GtkWidget *ol = gtk_label_new(NULL);
-    gtk_label_set_markup(GTK_LABEL(ol), "<span color='#8b949e' font='12px'>Online</span>");
-    gtk_box_pack_start(GTK_BOX(status_row), ol, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(c), status_row, FALSE, FALSE, 0);
-
-    gtk_widget_show_all(dlg);
-    int resp = gtk_dialog_run(GTK_DIALOG(dlg));
-    if (resp == GTK_RESPONSE_ACCEPT) open_pm(name);
-    else if (resp == 100)              send_file_to(name);
-    gtk_widget_destroy(dlg);
-}
-
 /* ════════════════════════════════════════════════════════════════════════════
  *                              SIDEBAR CLICKS
  * ════════════════════════════════════════════════════════════════════════════ */
@@ -971,7 +936,7 @@ static void on_user_clicked(GtkListBox *box, GtkListBoxRow *row, gpointer d) {
     g_list_free(children);
     if (!lbl) return;
     const char *name = gtk_label_get_text(GTK_LABEL(lbl));
-    show_profile(name);
+    open_pm(name);
 }
 
 static void join_room(const char *name, const char *password) {
@@ -1040,6 +1005,191 @@ static void on_back_to_room(GtkWidget *w, gpointer d) {
     update_header_for_mode();
     gtk_entry_set_placeholder_text(GTK_ENTRY(entry_chat), "Type a message…");
     rerender_chat();
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+ *                           ADMIN USER MANAGEMENT GUI
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+/* Global for admin panel – last account list received from server. */
+static char admin_accounts_buf[4096] = "";
+static GtkWidget *admin_wnd = NULL;
+static GtkWidget *admin_user_list = NULL;
+
+void ui_on_account_list(const char *csv) {
+    if (!admin_wnd) return; /* only update if panel is open */
+    strncpy(admin_accounts_buf, csv ? csv : "", sizeof(admin_accounts_buf) - 1);
+    admin_accounts_buf[sizeof(admin_accounts_buf) - 1] = '\0';
+    if (admin_user_list) {
+        char *m = g_strdup_printf("<span color='#c9d1d9'>%s</span>",
+            csv && csv[0] ? csv : "(no users registered)");
+        gtk_label_set_markup(GTK_LABEL(admin_user_list), m);
+        g_free(m);
+    }
+}
+
+static void admin_refresh(GtkWidget *w, gpointer d) {
+    (void)w; (void)d;
+    client_send_raw("LIST_ACCOUNTS");
+}
+
+static void admin_create_user(GtkWidget *w, gpointer d) {
+    (void)w; (void)d;
+    GtkWidget *dlg = gtk_dialog_new_with_buttons("Create User", GTK_WINDOW(admin_wnd ? admin_wnd : win_main),
+        GTK_DIALOG_MODAL, "_Create", GTK_RESPONSE_ACCEPT, "_Cancel", GTK_RESPONSE_REJECT, NULL);
+    gtk_window_set_resizable(GTK_WINDOW(dlg), FALSE);
+    GtkWidget *c = gtk_dialog_get_content_area(GTK_DIALOG(dlg));
+    gtk_box_set_spacing(GTK_BOX(c), 8);
+    gtk_container_set_border_width(GTK_CONTAINER(c), 20);
+    GtkWidget *h = gtk_label_new(NULL);
+    gtk_label_set_markup(GTK_LABEL(h), "<span font_weight='700' color='#e6edf3'>New User</span>");
+    gtk_widget_set_halign(h, GTK_ALIGN_START);
+    gtk_box_pack_start(GTK_BOX(c), h, FALSE, FALSE, 0);
+    GtkWidget *eu = gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(eu), "Username");
+    gtk_box_pack_start(GTK_BOX(c), eu, FALSE, FALSE, 0);
+    GtkWidget *ep = gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(ep), "Password");
+    gtk_entry_set_visibility(GTK_ENTRY(ep), FALSE);
+    gtk_box_pack_start(GTK_BOX(c), ep, FALSE, FALSE, 0);
+    gtk_widget_show_all(dlg);
+    if (gtk_dialog_run(GTK_DIALOG(dlg)) == GTK_RESPONSE_ACCEPT) {
+        const char *u = gtk_entry_get_text(GTK_ENTRY(eu));
+        const char *p = gtk_entry_get_text(GTK_ENTRY(ep));
+        if (u && u[0] && p && p[0]) {
+            char cmd[256];
+            snprintf(cmd, sizeof(cmd), "CREATE_USER|%s|%s", u, p);
+            client_send_raw(cmd);
+        }
+    }
+    gtk_widget_destroy(dlg);
+}
+
+static void admin_delete_user(GtkWidget *w, gpointer d) {
+    (void)w; (void)d;
+    GtkWidget *dlg = gtk_dialog_new_with_buttons("Delete User", GTK_WINDOW(admin_wnd ? admin_wnd : win_main),
+        GTK_DIALOG_MODAL, "_Delete", GTK_RESPONSE_ACCEPT, "_Cancel", GTK_RESPONSE_REJECT, NULL);
+    gtk_window_set_resizable(GTK_WINDOW(dlg), FALSE);
+    GtkWidget *c = gtk_dialog_get_content_area(GTK_DIALOG(dlg));
+    gtk_box_set_spacing(GTK_BOX(c), 8);
+    gtk_container_set_border_width(GTK_CONTAINER(c), 20);
+    GtkWidget *h = gtk_label_new(NULL);
+    gtk_label_set_markup(GTK_LABEL(h), "<span font_weight='700' color='#e6edf3'>Delete User</span>");
+    gtk_widget_set_halign(h, GTK_ALIGN_START);
+    gtk_box_pack_start(GTK_BOX(c), h, FALSE, FALSE, 0);
+    GtkWidget *eu = gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(eu), "Username to delete");
+    gtk_box_pack_start(GTK_BOX(c), eu, FALSE, FALSE, 0);
+    gtk_widget_show_all(dlg);
+    if (gtk_dialog_run(GTK_DIALOG(dlg)) == GTK_RESPONSE_ACCEPT) {
+        const char *u = gtk_entry_get_text(GTK_ENTRY(eu));
+        if (u && u[0]) {
+            char cmd[128];
+            snprintf(cmd, sizeof(cmd), "DELETE_USER|%s", u);
+            client_send_raw(cmd);
+        }
+    }
+    gtk_widget_destroy(dlg);
+}
+
+static void admin_reset_pass(GtkWidget *w, gpointer d) {
+    (void)w; (void)d;
+    GtkWidget *dlg = gtk_dialog_new_with_buttons("Reset Password", GTK_WINDOW(admin_wnd ? admin_wnd : win_main),
+        GTK_DIALOG_MODAL, "_Reset", GTK_RESPONSE_ACCEPT, "_Cancel", GTK_RESPONSE_REJECT, NULL);
+    gtk_window_set_resizable(GTK_WINDOW(dlg), FALSE);
+    GtkWidget *c = gtk_dialog_get_content_area(GTK_DIALOG(dlg));
+    gtk_box_set_spacing(GTK_BOX(c), 8);
+    gtk_container_set_border_width(GTK_CONTAINER(c), 20);
+    GtkWidget *h = gtk_label_new(NULL);
+    gtk_label_set_markup(GTK_LABEL(h), "<span font_weight='700' color='#e6edf3'>Reset Password</span>");
+    gtk_widget_set_halign(h, GTK_ALIGN_START);
+    gtk_box_pack_start(GTK_BOX(c), h, FALSE, FALSE, 0);
+    GtkWidget *eu = gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(eu), "Username");
+    gtk_box_pack_start(GTK_BOX(c), eu, FALSE, FALSE, 0);
+    GtkWidget *ep = gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(ep), "New password");
+    gtk_entry_set_visibility(GTK_ENTRY(ep), FALSE);
+    gtk_box_pack_start(GTK_BOX(c), ep, FALSE, FALSE, 0);
+    gtk_widget_show_all(dlg);
+    if (gtk_dialog_run(GTK_DIALOG(dlg)) == GTK_RESPONSE_ACCEPT) {
+        const char *u = gtk_entry_get_text(GTK_ENTRY(eu));
+        const char *p = gtk_entry_get_text(GTK_ENTRY(ep));
+        if (u && u[0] && p && p[0]) {
+            char cmd[256];
+            snprintf(cmd, sizeof(cmd), "RESET_PASS|%s|%s", u, p);
+            client_send_raw(cmd);
+        }
+    }
+    gtk_widget_destroy(dlg);
+}
+
+static void on_admin_panel(GtkWidget *w, gpointer d) {
+    (void)w; (void)d;
+    if (admin_wnd) { gtk_window_present(GTK_WINDOW(admin_wnd)); return; }
+
+    admin_wnd = gtk_dialog_new_with_buttons("Admin – User Management",
+        GTK_WINDOW(win_main), GTK_DIALOG_DESTROY_WITH_PARENT,
+        "_Close", GTK_RESPONSE_CLOSE, NULL);
+    gtk_window_set_default_size(GTK_WINDOW(admin_wnd), 460, 380);
+    g_signal_connect(admin_wnd, "destroy", G_CALLBACK(gtk_widget_destroyed), &admin_wnd);
+
+    GtkWidget *c = gtk_dialog_get_content_area(GTK_DIALOG(admin_wnd));
+    gtk_box_set_spacing(GTK_BOX(c), 10);
+    gtk_container_set_border_width(GTK_CONTAINER(c), 18);
+
+    GtkWidget *header = gtk_label_new(NULL);
+    gtk_label_set_markup(GTK_LABEL(header),
+        "<span font='15px' font_weight='700' color='#e6edf3'>👑 User Management</span>");
+    gtk_widget_set_halign(header, GTK_ALIGN_START);
+    gtk_box_pack_start(GTK_BOX(c), header, FALSE, FALSE, 0);
+
+    GtkWidget *desc = gtk_label_new(NULL);
+    gtk_label_set_markup(GTK_LABEL(desc),
+        "<span color='#8b949e' font='11px'>Registered user accounts</span>");
+    gtk_widget_set_halign(desc, GTK_ALIGN_START);
+    gtk_box_pack_start(GTK_BOX(c), desc, FALSE, FALSE, 0);
+
+    /* User list display */
+    admin_user_list = gtk_label_new(NULL);
+    gtk_widget_set_name(admin_user_list, "admin-user-list");
+    gtk_label_set_xalign(GTK_LABEL(admin_user_list), 0.0f);
+    gtk_label_set_selectable(GTK_LABEL(admin_user_list), TRUE);
+    GtkWidget *sw = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(sw),
+        GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_container_add(GTK_CONTAINER(sw), admin_user_list);
+    gtk_widget_set_size_request(sw, -1, 120);
+    gtk_widget_set_margin_bottom(sw, 4);
+    gtk_box_pack_start(GTK_BOX(c), sw, TRUE, TRUE, 0);
+
+    /* Action buttons */
+    GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_box_set_homogeneous(GTK_BOX(actions), TRUE);
+
+    GtkWidget *btn_ref = gtk_button_new_with_label("🔄 Refresh");
+    g_signal_connect(btn_ref, "clicked", G_CALLBACK(admin_refresh), NULL);
+    gtk_box_pack_start(GTK_BOX(actions), btn_ref, TRUE, TRUE, 0);
+
+    GtkWidget *btn_add = gtk_button_new_with_label("➕ Create");
+    gtk_widget_set_name(btn_add, "btn-primary");
+    g_signal_connect(btn_add, "clicked", G_CALLBACK(admin_create_user), NULL);
+    gtk_box_pack_start(GTK_BOX(actions), btn_add, TRUE, TRUE, 0);
+
+    GtkWidget *btn_del = gtk_button_new_with_label("✖ Delete");
+    gtk_widget_set_name(btn_del, "btn-danger");
+    g_signal_connect(btn_del, "clicked", G_CALLBACK(admin_delete_user), NULL);
+    gtk_box_pack_start(GTK_BOX(actions), btn_del, TRUE, TRUE, 0);
+
+    GtkWidget *btn_rp = gtk_button_new_with_label("🔑 Reset PW");
+    g_signal_connect(btn_rp, "clicked", G_CALLBACK(admin_reset_pass), NULL);
+    gtk_box_pack_start(GTK_BOX(actions), btn_rp, TRUE, TRUE, 0);
+
+    gtk_box_pack_start(GTK_BOX(c), actions, FALSE, FALSE, 0);
+
+    gtk_widget_show_all(admin_wnd);
+    /* Fetch current user list */
+    admin_refresh(NULL, NULL);
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -1302,6 +1452,13 @@ static const char *THEME_CSS =
 "  margin: 4px 12px 12px;"
 "}"
 "#btn-create-room:hover { background-color: #1c2128; border-color: #58a6ff; }"
+
+/* ── Chat messages list ──────────────────────────────────────────── */
+"#chat-messages { background-color: #0d1117; }"
+"#chat-messages row { background-color: transparent; border: none; padding: 0; }"
+
+/* ── Admin panel ────────────────────────────────────────────────── */
+"#admin-user-list { background-color: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 10px; color: #c9d1d9; font-size: 12px; }"
 
 /* ── Inputs ──────────────────────────────────────────────────────────────── */
 "entry {"
@@ -1711,19 +1868,25 @@ void ui_show_main_window(void) {
     g_signal_connect(lst_files, "row-activated", G_CALLBACK(on_file_row_clicked), NULL);
     gtk_box_pack_start(GTK_BOX(sb_list_box), lst_files, FALSE, FALSE, 0);
 
-    /* Admin hint */
+    /* Admin hint + panel button */
     if (strcmp(current_user, "admin") == 0) {
         GtkWidget *al = gtk_label_new(NULL);
         gtk_label_set_markup(GTK_LABEL(al),
             "<span color='#d2a8ff' font='10px' letter_spacing='400'>"
-            "ADMIN · /announce · /kick · /createuser"
+            "ADMIN PANEL"
             "</span>");
         gtk_widget_set_halign(al, GTK_ALIGN_START);
         gtk_widget_set_margin_start(al, 16);
         gtk_widget_set_margin_end(al, 16);
         gtk_widget_set_margin_top(al, 8);
-        gtk_widget_set_margin_bottom(al, 8);
+        gtk_widget_set_margin_bottom(al, 2);
         gtk_box_pack_start(GTK_BOX(sb_list_box), al, FALSE, FALSE, 0);
+
+        GtkWidget *admin_btn = gtk_button_new_with_label("⚙  User Management");
+        gtk_widget_set_name(admin_btn, "btn-create-room");
+        gtk_widget_set_margin_top(admin_btn, 0);
+        g_signal_connect(admin_btn, "clicked", G_CALLBACK(on_admin_panel), NULL);
+        gtk_box_pack_start(GTK_BOX(sb_list_box), admin_btn, FALSE, FALSE, 0);
     }
 
     /* ─────────── CHAT PANEL ─────────── */
@@ -1758,6 +1921,7 @@ void ui_show_main_window(void) {
     gtk_scrolled_window_set_policy(sw_chat, GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
     gtk_widget_set_vexpand(GTK_WIDGET(sw_chat), TRUE);
     lst_chat = gtk_list_box_new();
+    gtk_widget_set_name(lst_chat, "chat-messages");
     gtk_list_box_set_selection_mode(GTK_LIST_BOX(lst_chat), GTK_SELECTION_NONE);
     gtk_container_add(GTK_CONTAINER(sw_chat), lst_chat);
     gtk_box_pack_start(GTK_BOX(chat_panel), GTK_WIDGET(sw_chat), TRUE, TRUE, 0);
@@ -1852,6 +2016,23 @@ void ui_append_announcement(const char *text, const char *ts) {
 }
 
 void ui_add_notification(const char *text) {
+    /* Check if notification is room-specific (e.g. "user joined room gaming.")
+       and extract the room name so it only shows in that room's view. */
+    const char *joined = strstr(text, "joined room ");
+    const char *left = strstr(text, "left room ");
+    if (joined || left) {
+        const char *rp = joined ? joined + 12 : left + 10;
+        char room_buf[MAX_ROOM_NAME] = {0};
+        int i = 0;
+        while (rp[i] && rp[i] != '.' && rp[i] != '\n' && i < (int)sizeof(room_buf) - 1)
+            { room_buf[i] = rp[i]; i++; }
+        room_buf[i] = '\0';
+        if (room_buf[0]) {
+            gchar *cid = g_strdup_printf("room:%s", room_buf);
+            add_msg_entry(cid, "notify", "", text, "", g_strdup(room_buf), NULL, 0);
+            return;
+        }
+    }
     add_msg_entry(g_strdup("global"), "notify", "", text, "", "", NULL, 0);
 }
 
