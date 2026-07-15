@@ -644,12 +644,27 @@ static void add_msg_entry(const char *conv, const char *type, const char *sender
 
 static void open_file_by_path(const char *fp) {
     if (!fp || !fp[0]) return;
+    if (access(fp, F_OK) != 0) {
+        fprintf(stderr, "[UI] File not found: %s\n", fp);
+        return;
+    }
+    /* Try gtk_show_uri_on_window first (native Linux / proper desktop). */
     char *uri = g_filename_to_uri(fp, NULL, NULL);
     if (uri) {
         GError *err = NULL;
         gtk_show_uri_on_window(NULL, uri, GDK_CURRENT_TIME, &err);
+        if (!err) { g_free(uri); return; }
+        g_error_free(err);
         g_free(uri);
-        if (err) g_error_free(err);
+    }
+    /* Fallback: spawn xdg-open (works on WSL, headless, etc.). */
+    char *argv[] = {"xdg-open", (char*)fp, NULL};
+    GPid child_pid;
+    GSpawnFlags flags = G_SPAWN_SEARCH_PATH | G_SPAWN_STDOUT_TO_DEV_NULL | G_SPAWN_STDERR_TO_DEV_NULL;
+    if (!g_spawn_async(NULL, argv, NULL, flags, NULL, NULL, &child_pid, NULL)) {
+        /* Last resort: try cmd /c start on Windows/WSL interop. */
+        char *argv2[] = {"cmd.exe", "/c", "start", "", (char*)fp, NULL};
+        g_spawn_async(NULL, argv2, NULL, flags, NULL, NULL, &child_pid, NULL);
     }
 }
 

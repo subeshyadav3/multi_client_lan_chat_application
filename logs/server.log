@@ -201,3 +201,33 @@
 [2026-07-14 16:28:04] [FILE] alice accepted file 'c' from admin
 [2026-07-14 16:28:21] [INFO] User 'admin' disconnected
 [2026-07-14 16:28:22] [INFO] User 'alice' disconnected
+[2026-07-14 16:39:13] [INFO] Admin creds loaded: user=admin
+[2026-07-14 16:39:13] [INFO] Loaded 3 user accounts
+[2026-07-14 16:39:26] [INFO] User 'alice' logged in from 127.0.0.1
+[2026-07-14 16:39:34] [INFO] User 'admin' logged in from 127.0.0.1
+[2026-07-14 16:39:40] [FILE] admin offered file 'c' (307 bytes) to alice
+[2026-07-14 16:39:43] [FILE] alice accepted file 'c' from admin
+[2026-07-14 16:40:18] [MSG] [guff] alice: hi are you
+[2026-07-14 16:40:36] [MSG] [guff] admin: hi
+[2026-07-14 16:40:46] [MSG] [guff] admin: ok are you good
+[2026-07-14 16:40:53] [INFO] User 'alice' disconnected
+[2026-07-14 16:40:53] [INFO] User 'admin' disconnected
+[2026-07-15 11:49:34] [INFO] Admin creds loaded: user=admin
+[2026-07-15 11:49:34] [INFO] Loaded 3 user accounts
+[2026-07-15 11:49:34] [INFO] Server started on port 8080
+[2026-07-15 11:49:43] [INFO] User 'alice' logged in from 127.0.0.1
+[2026-07-15 11:50:02] [INFO] User 'admin' logged in from 127.0.0.1
+[2026-07-15 11:50:22] [PRIV] admin -> alice: hlo
+[2026-07-15 11:50:30] [PRIV] alice -> admin: h
+[2026-07-15 11:50:33] [FILE] alice offered file 'file1.c' (311 bytes) to admin
+[2026-07-15 11:50:39] [FILE] admin accepted file 'file1.c' from alice
+[2026-07-15 11:50:52] [MSG] [general] alice: hi
+[2026-07-15 11:51:09] [MSG] [general] admin: hlo
+[2026-07-15 11:51:21] [PRIV] admin -> alice: ok
+[2026-07-15 11:51:26] [PRIV] admin -> alice: ok
+[2026-07-15 11:51:48] [MSG] [guff] admin: hlo
+[2026-07-15 11:51:58] [MSG] [guff] alice: hhg
+[2026-07-15 11:52:06] [MSG] [guff] admin: hghgh
+[2026-07-15 11:52:37] [INFO] User 'alice' disconnected
+[2026-07-15 11:52:38] [INFO] User 'admin' disconnected
+[2026-07-15 11:52:46] [INFO] Server shutting down
