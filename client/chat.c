@@ -74,8 +74,9 @@ void client_disconnect(void) {
         sockfd = -1;
     }
     if (thread_created) {
-        pthread_cancel(recv_thread);
-        pthread_join(recv_thread, NULL);
+        /* Use flag-based shutdown instead of pthread_cancel to avoid resource leaks */
+        void *retval;
+        pthread_join(recv_thread, &retval);
         thread_created = false;
     }
 }
@@ -113,6 +114,13 @@ bool client_send_typing(const char* room) {
     char line[128];
     const char* target = room ? room : "general";
     snprintf(line, sizeof(line), "TYPING|%s", target);
+    return send_line(line);
+}
+
+bool client_send_file_request(const char* filename, long size, const char* target) {
+    if (!connected) return false;
+    char line[512];
+    snprintf(line, sizeof(line), "FILE_REQUEST|%s|%ld|%s", filename, size, target?target:"");
     return send_line(line);
 }
 

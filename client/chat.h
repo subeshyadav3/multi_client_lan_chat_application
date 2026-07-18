@@ -14,6 +14,7 @@ bool client_send_login_pw(const char* username, const char* password);
 bool client_send_public(const char* room, const char* text);
 bool client_send_private(const char* to, const char* text);
 bool client_send_typing(const char* room);
+bool client_send_file_request(const char* filename, long size, const char* target);
 bool client_send_file_offer(const char* filename, long size, const char* target);
 bool client_send_file_reject(const char* sender, const char* filename, const char* reason);
 bool client_send_file_accept(const char* sender, const char* filename);

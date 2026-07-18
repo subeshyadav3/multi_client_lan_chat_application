@@ -249,3 +249,16 @@
 [2026-07-15 12:35:33] [INFO] User 'alice' disconnected
 [2026-07-15 12:35:40] [INFO] User 'admin' disconnected
 [2026-07-15 12:35:44] [INFO] Server shutting down
+[2026-07-17 13:26:01] [INFO] Admin creds loaded: user=admin
+[2026-07-17 13:26:01] [INFO] Loaded 4 user accounts
+[2026-07-17 13:26:01] [INFO] Server started on port 8080
+[2026-07-17 13:26:15] [INFO] User 'alice' logged in from 127.0.0.1
+[2026-07-17 13:26:22] [INFO] User 'admin' logged in from 127.0.0.1
+[2026-07-17 13:26:27] [MSG] [general] alice: hhlo
+[2026-07-17 13:26:33] [MSG] [general] admin: hi
+[2026-07-17 13:27:57] [MSG] [guff] alice: hlo
+[2026-07-17 13:28:03] [MSG] [guff] admin: guff
+[2026-07-17 13:28:05] [MSG] [guff] admin: hello
+[2026-07-17 13:28:20] [FILE] alice offered file 'c' (307 bytes) to all
+[2026-07-17 13:28:50] [INFO] User 'admin' disconnected
+[2026-07-17 13:28:53] [INFO] User 'alice' disconnected

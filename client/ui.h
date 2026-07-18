@@ -23,6 +23,8 @@ void ui_show_file_offer(const char *sender, const char *filename, const char *si
 void ui_append_file_chunk(const char *filename, const char *base64);
 void ui_finish_file(const char *filename);
 void ui_on_file_rejected(const char *filename, const char *recipient, const char *reason);
+void ui_on_file_granted(const char *filename, const char *token, const char *size_str);
+void ui_on_file_denied(const char *filename, const char *reason);
 void ui_send_accepted_file(const char *recipient, const char *filename);
 void ui_on_account_list(const char *csv);
 

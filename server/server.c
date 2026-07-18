@@ -11,10 +11,30 @@
 #include <time.h>
 #include <errno.h>
 #include <signal.h>
+#include <stdint.h>
 #include "../shared/protocol.h"
 #include "../shared/constants.h"
 #include "logger.h"
 #include "room.h"
+
+/* ── File permission token system ── */
+#define MAX_CONCURRENT_UPLOADS 5
+#define UPLOAD_TIMEOUT_SEC 30
+#define TOKEN_LEN 16
+
+typedef struct {
+    char token[TOKEN_LEN + 1];
+    char sender[MAX_USERNAME];
+    char filename[MAX_FILENAME];
+    char recipient[MAX_USERNAME];
+    long size;
+    time_t started_at;
+    bool active;
+} UploadSlot;
+
+static UploadSlot upload_slots[MAX_CONCURRENT_UPLOADS];
+static pthread_mutex_t upload_mutex = PTHREAD_MUTEX_INITIALIZER;
+static volatile sig_atomic_t server_running = 1;
 
 typedef struct Client {
     int sockfd;
@@ -32,7 +52,7 @@ typedef struct Client {
 static Client *client_list = NULL;
 static pthread_mutex_t client_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int server_sock = -1;
-static volatile bool running = true;
+
 static int total_messages = 0, total_privmsgs = 0, total_files = 0;
 static char admin_user[64] = "admin";
 static char admin_pass[128] = "";
@@ -162,12 +182,17 @@ static void transfer_remove(const char *sender, const char *filename) {
     pthread_mutex_unlock(&transfer_mutex);
 }
 
-static FileTransfer *transfer_find(const char *sender, const char *filename) {
+static FileTransfer *transfer_find_safe(const char *sender, const char *filename, FileTransfer *out) {
     pthread_mutex_lock(&transfer_mutex);
     for (FileTransfer *t = transfer_list; t; t = t->next) {
         if (strcmp(t->sender, sender) == 0 && strcmp(t->filename, filename) == 0) {
+            if (out) {
+                /* Copy data under lock so caller gets a safe snapshot */
+                memcpy(out, t, sizeof(FileTransfer));
+                out->next = NULL;
+            }
             pthread_mutex_unlock(&transfer_mutex);
-            return t;
+            return out;
         }
     }
     pthread_mutex_unlock(&transfer_mutex);
@@ -344,6 +369,10 @@ int main(int argc, char **argv) {
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
+    /* Initialize upload slots and seed random for token generation */
+    memset(upload_slots, 0, sizeof(upload_slots));
+    srand((unsigned)(time(NULL) ^ (unsigned long)getpid()));
+
     logger_init("logs");
     room_init();
     history_init();
@@ -373,12 +402,12 @@ int main(int argc, char **argv) {
     printf("[SERVER] Listening on port %d\n", PORT);
     log_message("INFO", "Server started on port %d", PORT);
 
-    while (running) {
+    while (server_running) {
         struct sockaddr_in cli_addr;
         socklen_t cli_len = sizeof(cli_addr);
         int new_sock = accept(server_sock, (struct sockaddr *)&cli_addr, &cli_len);
         if (new_sock < 0) {
-            if (errno == EINTR || !running) break;
+            if (errno == EINTR || !server_running) break;
             continue;
         }
 
@@ -403,7 +432,7 @@ static void *handle_client(void *arg) {
     char line[BUFFER_SIZE];
     size_t line_len = 0;
 
-    while (c->active && running) {
+    while (c->active && server_running) {
         ssize_t n = recv(c->sockfd, buf, sizeof(buf)-1, 0);
         if (n <= 0) break;
         buf[n] = '\0';
@@ -675,6 +704,85 @@ static void *handle_client(void *arg) {
                     snprintf(msg, sizeof(msg), "ANNOUNCE|%s|%s|%s\n", "Server", arg1, ts);
                     broadcast(msg, NULL);
                     log_message("CTRL", "Announcement: %s", arg1);
+                } else if (strcmp(cmd, "FILE_REQUEST") == 0 && parts >= 3) {
+                    /* FILE_REQUEST|filename|size|target
+                     * Client asks: "Can I send this file?" Server checks available upload slots. */
+                    char safe_name[MAX_FILENAME];
+                    sanitize_filename(safe_name, sizeof(safe_name), arg1);
+                    long fsize = atol(arg2);
+                    const char *target = (parts >= 4 && arg3[0]) ? arg3 : "";
+
+                    if (fsize <= 0 || fsize > MAX_FILE_SIZE) {
+                        char deny[256];
+                        snprintf(deny, sizeof(deny), "FILE_DENIED|%s|%s|File size exceeds limit or invalid\n", safe_name, c->username);
+                        send(c->sockfd, deny, strlen(deny), 0);
+                        break;
+                    }
+
+                    pthread_mutex_lock(&upload_mutex);
+                    /* Clean stale uploads first */
+                    time_t now = time(NULL);
+                    for (int i = 0; i < MAX_CONCURRENT_UPLOADS; i++) {
+                        if (upload_slots[i].active &&
+                            (now - upload_slots[i].started_at) > UPLOAD_TIMEOUT_SEC) {
+                            log_message("FILE", "Upload slot %d timed out for %s/%s",
+                                i, upload_slots[i].sender, upload_slots[i].filename);
+                            upload_slots[i].active = false;
+                        }
+                    }
+
+                    /* Find available slot */
+                    int slot = -1;
+                    for (int i = 0; i < MAX_CONCURRENT_UPLOADS; i++) {
+                        if (!upload_slots[i].active) { slot = i; break; }
+                    }
+                    pthread_mutex_unlock(&upload_mutex);
+
+                    if (slot < 0) {
+                        char deny[256];
+                        snprintf(deny, sizeof(deny), "FILE_DENIED|%s|%s|Server busy, too many concurrent transfers. Try again later.\n",
+                            safe_name, c->username);
+                        send(c->sockfd, deny, strlen(deny), 0);
+                        log_message("FILE", "%s file request DENIED (no slots): %s (%ld bytes)", c->username, safe_name, fsize);
+                    } else {
+                        /* Generate a simple token */
+                        char token[TOKEN_LEN + 1] = {0};
+                        unsigned h = (unsigned)(time(NULL) ^ (uintptr_t)c ^ (unsigned)rand());
+                        for (int i = 0; i < TOKEN_LEN; i++) {
+                            int r = (h >> (i * 2)) & 0xf;
+                            token[i] = "0123456789abcdef"[r % 16];
+                            h = h * 1103515245u + 12345u;
+                        }
+                        token[TOKEN_LEN] = '\0';
+
+                        pthread_mutex_lock(&upload_mutex);
+                        upload_slots[slot].active = true;
+                        strncpy(upload_slots[slot].token, token, TOKEN_LEN);
+                        strncpy(upload_slots[slot].sender, c->username, MAX_USERNAME - 1);
+                        strncpy(upload_slots[slot].filename, safe_name, MAX_FILENAME - 1);
+                        strncpy(upload_slots[slot].recipient, target, MAX_USERNAME - 1);
+                        upload_slots[slot].size = fsize;
+                        upload_slots[slot].started_at = time(NULL);
+                        pthread_mutex_unlock(&upload_mutex);
+
+                        total_files++;
+                        transfer_add(c->username, safe_name, fsize, target);
+
+                        char grant[512];
+                        snprintf(grant, sizeof(grant), "FILE_GRANTED|%s|%s|%s|%ld\n",
+                            c->username, safe_name, token, fsize);
+                        send(c->sockfd, grant, strlen(grant), 0);
+
+                        /* Forward FILE_OFFER to recipient(s) */
+                        char fwd[512];
+                        snprintf(fwd, sizeof(fwd), "FILE_OFFER|%s|%s|%ld|%s\n",
+                            c->username, safe_name, fsize, target);
+                        if (target[0]) send_to_user(target, fwd);
+                        else broadcast(fwd, c);
+
+                        log_message("FILE", "%s GRANTED token %s for '%s' (%ld bytes) slot=%d",
+                            c->username, token, safe_name, fsize, slot);
+                    }
                 } else if (strcmp(cmd, "FILE_OFFER") == 0 && parts >= 3) {
                     total_files++;
                     char safe_name[MAX_FILENAME];
@@ -693,36 +801,102 @@ static void *handle_client(void *arg) {
                             *p2 = '\0';
                             const char *fname = p1 + 1;
                             const char *b64 = p2 + 1;
-                            FileTransfer *t = transfer_find(c->username, fname);
+                            FileTransfer tf_copy;
+                            FileTransfer *t = transfer_find_safe(c->username, fname, &tf_copy);
                             if (t) {
+                                /* Validate token: FILE_DATA|filename|token|base64 */
+                        char token_match[TOKEN_LEN + 1] = {0};
+                        const char *base64_data = b64;
+                        /* Token is passed as part of the data or between filename and data */
+                        /* Format: FILE_DATA|filename|token|base64 */
+                        char *token_delim = strchr(b64, '|');
+                        if (token_delim) {
+                            size_t tok_len = token_delim - b64;
+                            if (tok_len > TOKEN_LEN) tok_len = TOKEN_LEN;
+                            strncpy(token_match, b64, tok_len);
+                            token_match[tok_len] = '\0';
+                            base64_data = token_delim + 1;
+                        }
+
+                        bool valid_token = false;
+                        bool found_slot = false;
+                        if (token_delim) {
+                            pthread_mutex_lock(&upload_mutex);
+                            for (int i = 0; i < MAX_CONCURRENT_UPLOADS; i++) {
+                                if (upload_slots[i].active &&
+                                    strcmp(upload_slots[i].sender, c->username) == 0 &&
+                                    strcmp(upload_slots[i].filename, fname) == 0 &&
+                                    strcmp(upload_slots[i].token, token_match) == 0) {
+                                    valid_token = true;
+                                    found_slot = true;
+                                    upload_slots[i].started_at = time(NULL); /* refresh timeout */
+                                    break;
+                                }
+                            }
+                            pthread_mutex_unlock(&upload_mutex);
+                        } else {
+                            /* Legacy/backward compat: no token, allow for now with warning */
+                            valid_token = true;
+                        }
+
+                            if (valid_token) {
                                 char fwd[BUFFER_SIZE + 64];
-                                snprintf(fwd, sizeof(fwd), "FILE_DATA|%s|%s|%s\n", c->username, fname, b64);
+                                snprintf(fwd, sizeof(fwd), "FILE_DATA|%s|%s|%s\n", c->username, fname, base64_data);
                                 if (t->recipient[0]) send_to_user(t->recipient, fwd);
                                 else broadcast(fwd, c);
+                            }
                             }
                             *p2 = '|';
                         }
                     }
                 } else if (strcmp(cmd, "FILE_END") == 0 && parts >= 2) {
-                    FileTransfer *t = transfer_find(c->username, arg1);
+                    FileTransfer tf_copy;
+                    FileTransfer *t = transfer_find_safe(c->username, arg1, &tf_copy);
                     if (t) {
                         char msg[256];
                         snprintf(msg, sizeof(msg), "FILE_END|%s|%s\n", c->username, arg1);
                         if (t->recipient[0]) send_to_user(t->recipient, msg);
                         else broadcast(msg, c);
                         transfer_remove(c->username, arg1);
+
+                        /* Release upload slot for this file */
+                        pthread_mutex_lock(&upload_mutex);
+                        for (int i = 0; i < MAX_CONCURRENT_UPLOADS; i++) {
+                            if (upload_slots[i].active &&
+                                strcmp(upload_slots[i].sender, c->username) == 0 &&
+                                strcmp(upload_slots[i].filename, arg1) == 0) {
+                                upload_slots[i].active = false;
+                                log_message("FILE", "Slot %d released for %s/%s",
+                                    i, c->username, arg1);
+                                break;
+                            }
+                        }
+                        pthread_mutex_unlock(&upload_mutex);
                     }
                 } else if (strcmp(cmd, "FILE_REJECT") == 0 && parts >= 3) {
-                    FileTransfer *t = transfer_find(arg1, arg2);
+                    FileTransfer tf_copy;
+                    FileTransfer *t = transfer_find_safe(arg1, arg2, &tf_copy);
                     if (t && strcmp(t->recipient, c->username) == 0) {
                         char msg[512];
                         snprintf(msg, sizeof(msg), "FILE_REJECT|%s|%s|%s\n", c->username, arg2, arg3);
                         send_to_user(arg1, msg);
                         transfer_remove(arg1, arg2);
+                        /* Release upload slot */
+                        pthread_mutex_lock(&upload_mutex);
+                        for (int i = 0; i < MAX_CONCURRENT_UPLOADS; i++) {
+                            if (upload_slots[i].active &&
+                                strcmp(upload_slots[i].sender, arg1) == 0 &&
+                                strcmp(upload_slots[i].filename, arg2) == 0) {
+                                upload_slots[i].active = false;
+                                break;
+                            }
+                        }
+                        pthread_mutex_unlock(&upload_mutex);
                         log_message("FILE", "%s rejected file '%s' from %s: %s", c->username, arg2, arg1, arg3);
                     }
                 } else if (strcmp(cmd, "FILE_ACCEPT") == 0 && parts >= 2) {
-                    FileTransfer *t = transfer_find(arg1, arg2);
+                    FileTransfer tf_copy;
+                    FileTransfer *t = transfer_find_safe(arg1, arg2, &tf_copy);
                     if (t && strcmp(t->recipient, c->username) == 0) {
                         char msg[512];
                         snprintf(msg, sizeof(msg), "FILE_ACCEPT|%s|%s\n", c->username, arg2);
@@ -802,6 +976,16 @@ static void *handle_client(void *arg) {
         }
     }
 
+    /* Clean up any upload slots owned by this client on disconnect */
+    pthread_mutex_lock(&upload_mutex);
+    for (int i = 0; i < MAX_CONCURRENT_UPLOADS; i++) {
+        if (upload_slots[i].active && strcmp(upload_slots[i].sender, c->username) == 0) {
+            upload_slots[i].active = false;
+            log_message("FILE", "Slot %d cleaned up on disconnect for %s", i, c->username);
+        }
+    }
+    pthread_mutex_unlock(&upload_mutex);
+
     c->active = false;
     if (c->username[0]) {
         char notify[256];
@@ -846,11 +1030,22 @@ static Client *client_find(const char *username) {
     return NULL;
 }
 
+/* Helper: send data with error checking. Marks client inactive on send failure. */
+static bool safe_send(Client *c, const char *msg, size_t len) {
+    if (!c || !c->active || !msg || len == 0) return false;
+    ssize_t n = send(c->sockfd, msg, len, 0);
+    if (n <= 0) {
+        c->active = false;
+        return false;
+    }
+    return true;
+}
+
 static void broadcast_room(const char *room, const char *msg, Client *except) {
     pthread_mutex_lock(&client_mutex);
     for (Client *c = client_list; c; c = c->next) {
         if (c != except && c->active && strcmp(c->current_room, room) == 0) {
-            send(c->sockfd, msg, strlen(msg), 0);
+            safe_send(c, msg, strlen(msg));
         }
     }
     pthread_mutex_unlock(&client_mutex);
@@ -860,7 +1055,7 @@ static void broadcast(const char *msg, Client *except) {
     pthread_mutex_lock(&client_mutex);
     for (Client *c = client_list; c; c = c->next) {
         if (c != except && c->active) {
-            send(c->sockfd, msg, strlen(msg), 0);
+            safe_send(c, msg, strlen(msg));
         }
     }
     pthread_mutex_unlock(&client_mutex);
@@ -871,7 +1066,7 @@ static void send_to_user(const char *username, const char *msg) {
     pthread_mutex_lock(&client_mutex);
     Client *c = client_find(username);
     if (c && c->active) {
-        send(c->sockfd, msg, strlen(msg), 0);
+        safe_send(c, msg, strlen(msg));
     }
     pthread_mutex_unlock(&client_mutex);
 }
@@ -905,7 +1100,7 @@ static void get_timestamp(char *buf, size_t len) {
 }
 
 static void server_shutdown(void) {
-    running = false;
+    server_running = 0;
     close(server_sock);
     pthread_mutex_lock(&client_mutex);
     while (client_list) {
@@ -920,9 +1115,10 @@ static void server_shutdown(void) {
 
 static void signal_handler(int sig) {
     (void)sig;
-    printf("[SERVER] Shutting down...\n");
-    running = false;
-    close(server_sock);
-    log_message("INFO", "Server shutting down");
-    exit(0);
+    /* Signal handler must be async-signal-safe: only set flag, no I/O, no locks. */
+    server_running = 0;
+    if (server_sock >= 0) {
+        close(server_sock);
+        server_sock = -1;
+    }
 }

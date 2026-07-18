@@ -120,6 +120,9 @@ typedef struct {
     char *filename;
     char recipient[MAX_USERNAME];
     long size;
+    char token[64];                 /* server-granted token for permission-based send */
+    bool waiting_for_grant;         /* true after FILE_REQUEST sent, waiting for FILE_GRANTED */
+    bool is_room_broadcast;         /* true if this is a room-wide send */
 } OutgoingFile;
 static OutgoingFile outgoing_file = {0};
 
@@ -859,48 +862,107 @@ static void send_file_to(const char *target) {
         }
         long len = (long)statbuf.st_size;
         const char *send_target = (target && target[0]) ? target : "";
-        if (!client_send_file_offer(base, len, send_target)) {
-            ui_add_notification("Could not offer the file");
+
+        /* Always send FILE_REQUEST first to ask server for permission. */
+        if (!client_send_file_request(base, len, send_target)) {
+            ui_add_notification("Could not request file transfer");
             g_free(base); g_free(fn); gtk_widget_destroy(dlg); return;
         }
 
-        char info[512];
-        if (send_target[0]) {
-            clear_outgoing_file();
-            outgoing_file.path = fn;
-            outgoing_file.filename = base;
-            strncpy(outgoing_file.recipient, send_target, sizeof(outgoing_file.recipient) - 1);
-            outgoing_file.size = len;
-            snprintf(info, sizeof(info), "File offer sent to %s — waiting for acceptance", send_target);
-        } else {
-            /* Room-wide transfers retain the existing broadcast behaviour. */
-            gchar *data = NULL; gsize data_len = 0; GError *err = NULL;
-            if (!g_file_get_contents(fn, &data, &data_len, &err)) {
-                ui_add_notification("Failed to read file");
-                if (err) g_error_free(err);
-                g_free(base); g_free(fn); gtk_widget_destroy(dlg); return;
-            }
-            for (gsize off = 0; off < data_len; off += FILE_CHUNK_SIZE) {
-                gsize chunk = MIN((gsize)FILE_CHUNK_SIZE, data_len - off);
-                gchar *b64 = g_base64_encode((guchar *)data + off, chunk);
-                char line[4096 + 512];
-                snprintf(line, sizeof(line), "FILE_DATA|%s|%s", base, b64);
-                client_send_raw(line); g_free(b64);
-            }
-            char endline[512]; snprintf(endline, sizeof(endline), "FILE_END|%s", base);
-            client_send_raw(endline);
-            snprintf(info, sizeof(info), "Sent file '%s' to the room (%ld bytes)", base, len);
-            g_free(data); g_free(base); g_free(fn);
-        }
-        ui_add_notification(info);
+        /* Save outgoing file info; actual sending will happen when FILE_GRANTED is received. */
+        clear_outgoing_file();
+        outgoing_file.path = fn;
+        outgoing_file.filename = base;
+        strncpy(outgoing_file.recipient, send_target, sizeof(outgoing_file.recipient) - 1);
+        outgoing_file.size = len;
+        outgoing_file.waiting_for_grant = true;
+        outgoing_file.is_room_broadcast = (send_target[0] == '\0');
+        outgoing_file.token[0] = '\0';
+
+        ui_add_notification("Requesting server permission to send file…");
     }
     gtk_widget_destroy(dlg);
+}
+
+static void send_file_data_with_token(const char *filename, const char *token) {
+    /* Reads the pending outgoing file and sends it in chunks with the token. */
+    if (!outgoing_file.path || !outgoing_file.filename) {
+        ui_add_notification("No pending file to send");
+        return;
+    }
+    if (strcmp(outgoing_file.filename, filename) != 0) {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "File '%s' doesn't match pending '%s'", filename, outgoing_file.filename);
+        ui_add_notification(buf);
+        return;
+    }
+
+    /* Read and send the file */
+    gchar *data = NULL; gsize data_len = 0; GError *err = NULL;
+    if (!g_file_get_contents(outgoing_file.path, &data, &data_len, &err)) {
+        ui_add_notification("Failed to read file for sending");
+        if (err) g_error_free(err);
+        clear_outgoing_file();
+        return;
+    }
+
+    long len = (long)data_len;
+    for (gsize off = 0; off < data_len; off += FILE_CHUNK_SIZE) {
+        gsize chunk = MIN((gsize)FILE_CHUNK_SIZE, data_len - off);
+        gchar *b64 = g_base64_encode((guchar *)data + off, chunk);
+        char line[4096 + 512];
+        snprintf(line, sizeof(line), "FILE_DATA|%s|%s|%s",
+            outgoing_file.filename, token ? token : "", b64);
+        client_send_raw(line);
+        g_free(b64);
+    }
+    char endline[512];
+    snprintf(endline, sizeof(endline), "FILE_END|%s", outgoing_file.filename);
+    client_send_raw(endline);
+
+    char info[512];
+    snprintf(info, sizeof(info), "Sent file '%s' (%ld bytes) with server permission",
+        outgoing_file.filename, len);
+    ui_add_notification(info);
+
+    g_free(data);
+    clear_outgoing_file();
 }
 
 static void on_file(GtkWidget *w, gpointer d) {
     (void)w; (void)d;
     if (pm_mode && pm_target[0]) send_file_to(pm_target);
     else                          send_file_to("");
+}
+
+/* Called when server grants permission to send a file. */
+void ui_on_file_granted(const char *filename, const char *token, const char *size_str) {
+    (void)size_str;
+    if (!outgoing_file.waiting_for_grant ||
+        strcmp(outgoing_file.filename, filename) != 0) {
+        /* Not our pending file, ignore */
+        return;
+    }
+
+    /* Store the token */
+    strncpy(outgoing_file.token, token ? token : "", sizeof(outgoing_file.token) - 1);
+    outgoing_file.waiting_for_grant = false;
+
+    /* FILE_OFFER is already forwarded by server in the FILE_REQUEST handler,
+     * so we just send the actual file data with the token now. */
+    send_file_data_with_token(filename, token);
+}
+
+/* Called when server denies permission to send a file. */
+void ui_on_file_denied(const char *filename, const char *reason) {
+    if (!outgoing_file.waiting_for_grant ||
+        strcmp(outgoing_file.filename, filename) != 0) {
+        return;
+    }
+    char buf[512];
+    snprintf(buf, sizeof(buf), "❌ File send denied: %s", reason ? reason : "Server busy");
+    ui_add_notification(buf);
+    clear_outgoing_file();
 }
 
 /* ════════════════════════════════════════════════════════════════════════════

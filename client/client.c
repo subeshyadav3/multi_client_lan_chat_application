@@ -110,6 +110,12 @@ static gboolean process_on_main_thread(gpointer data) {
     } else if (strcmp(p[0], "FILE_REJECT") == 0 && p[1][0] && p[2][0]) {
         /* FILE_REJECT|recipient|filename|reason */
         ui_on_file_rejected(p[2], p[1], p[3]);
+    } else if (strcmp(p[0], "FILE_GRANTED") == 0 && p[1][0] && p[2][0] && p[3][0]) {
+        /* FILE_GRANTED|sender|filename|token|size — server says you may send */
+        ui_on_file_granted(p[2], p[3], p[4]);
+    } else if (strcmp(p[0], "FILE_DENIED") == 0 && p[1][0] && p[2][0] && p[3][0]) {
+        /* FILE_DENIED|filename|sender|reason — server says you cannot send */
+        ui_on_file_denied(p[1], p[3]);
     } else if (strcmp(p[0], "FILE_ACCEPT") == 0 && p[1][0] && p[2][0]) {
         /* FILE_ACCEPT|recipient|filename */
         ui_send_accepted_file(p[1], p[2]);
