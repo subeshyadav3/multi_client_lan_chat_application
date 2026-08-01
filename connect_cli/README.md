@@ -87,22 +87,17 @@ Log in automatically by passing credentials up front (flags or positional):
 
 ## Test accounts
 
-Accounts come from `config/users.cred` (10+ ready to try):
+Accounts come from `config/users.cred` (7 ready to try):
 
 | Username | Password |
 |----------|----------|
+| `subesh` | `subesh` |
+| `prabesh`| `prabesh`|
+| `saroj`  | `saroj`  |
 | `alice`  | `alice`  |
 | `bob`    | `bob`    |
 | `carol`  | `carol`  |
 | `dave`   | `dave`   |
-| `erin`   | `erin`   |
-| `frank`  | `frank`  |
-| `grace`  | `grace`  |
-| `heidi`  | `heidi`  |
-| `ivan`   | `ivan`   |
-| `judy`   | `judy`   |
-| `saroj`  | `saroj`  |
-| `abc`    | `abc`    |
 
 > Administrator: login as **`admin`** with password **`admin123`** (from
 > `config/admin.cred`). Only the admin can use `/announce`, `/kick`, and the
