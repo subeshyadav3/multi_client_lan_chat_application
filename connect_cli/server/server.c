@@ -697,9 +697,9 @@ static void *handle_client(void *arg) {
                 } else if (strcmp(cmd, "ANNOUNCE") == 0 && parts >= 2) {
                     if (c->is_admin) {
                         char msg[MAX_MESSAGE + 256];
-                        snprintf(msg, sizeof(msg), "ANNOUNCE|%s|%s|%s\n", c->username, arg2, ts);
+                        snprintf(msg, sizeof(msg), "ANNOUNCE|%s|%s|%s\n", c->username, arg1, ts);
                         broadcast(msg, NULL);
-                        log_message("CTRL", "Announcement by admin: %s", arg2);
+                        log_message("CTRL", "Announcement by admin: %s", arg1);
                     } else {
                         char err[256];
                         snprintf(err, sizeof(err), "ERROR|Only admin can announce\n");

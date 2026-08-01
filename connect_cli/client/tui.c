@@ -124,9 +124,68 @@ static void draw_separator(int row, int cols) {
     printf(RESET);
 }
 
+/* Centered login screen: no sidebar, prompt + input box in the middle. */
+static void draw_login(App *app, int rows, int cols) {
+    int box_w = 46;
+    if (box_w > cols - 4) box_w = cols - 4;
+    int box_h = 7;
+    int top = (rows - box_h) / 2;
+    int left = (cols - box_w) / 2;
+
+    printf("\033[?25l\033[2J\033[H");
+    printf("\033[7m"); print_cell(" ConnectHub CLI  |  login ", cols); printf(RESET);
+
+    /* Box frame. */
+    printf("\033[%d;%dH\033[1m+", top, left);
+    for (int i = 0; i < box_w - 2; i++) putchar('-');
+    printf("+\033[0m");
+    for (int r = top + 1; r < top + box_h - 1; r++) {
+        printf("\033[%d;%dH\033[1m|\033[0m", r, left);
+        printf("\033[%d;%dH\033[1m|\033[0m", r, left + box_w - 1);
+    }
+    printf("\033[%d;%dH\033[1m+", top + box_h - 1, left);
+    for (int i = 0; i < box_w - 2; i++) putchar('-');
+    printf("+\033[0m");
+
+    /* App title. */
+    int cx = left + box_w / 2;
+    printf("\033[%d;%dH\033[1;36mConnectHub\033[0m", top + 1, cx - 5);
+    printf("\033[%d;%dH\033[2mLAN chat over sockets\033[0m", top + 2, cx - 9);
+
+    /* Prompt. */
+    const char *prompt = (app->login_step == 2)
+        ? "Enter password:"
+        : "Enter username:";
+    int pl = (int)strlen(prompt);
+    printf("\033[%d;%dH\033[33m%s\033[0m", top + 4, cx - pl / 2, prompt);
+
+    /* Input box. */
+    int in_w = box_w - 6;
+    if (in_w < 10) in_w = 10;
+    int il = cx - in_w / 2;
+    printf("\033[%d;%dH\033[7m", top + 5, il);
+    if (app->mask_input) {
+        for (int i = 0; i < in_w; i++) putchar(i < app->input_len ? '*' : ' ');
+    } else {
+        print_cell(app->input, in_w);
+    }
+    printf("\033[0m");
+
+    /* Cursor. */
+    int cur = il + app->input_len;
+    if (cur > il + in_w - 1) cur = il + in_w - 1;
+    printf("\033[%d;%dH\033[?25h", top + 5, cur + 1);
+    fflush(stdout);
+}
+
 void tui_draw(App *app) {
     int rows, cols;
     tui_get_size(&rows, &cols);
+    if (!app->logged_in) {
+        draw_login(app, rows, cols);
+        return;
+    }
+
     int sidebar_w = (cols > 76) ? 22 : (cols > 50 ? 14 : 0);
     int chat_w = cols - sidebar_w - (sidebar_w ? 1 : 0);
 
