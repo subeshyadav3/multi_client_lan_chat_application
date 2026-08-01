@@ -479,6 +479,10 @@ void handle_line(App *app, const char *line) {
         tui_add_line(app, LN_ERROR, "File send denied: %s", p[3][0] ? p[3] : "by server");
         if (app->send_fp) { fclose(app->send_fp); app->send_fp = NULL; }
         app->send_state = 0;
+    } else if (strcmp(p[0], "FILE_WAIT") == 0 && p[1][0]) {
+        tui_add_line(app, LN_FILE, "Queue busy: '%s' queued at position %s. Waiting for a free slot...",
+                     p[1], p[2][0] ? p[2] : "?");
+        app->send_state = 1;
     } else if (strcmp(p[0], "FILE_OFFER") == 0 && p[1][0]) {
         add_offer(app, p[1], p[2], atol(p[3]), p[4]);
     } else if (strcmp(p[0], "FILE_ACCEPT") == 0 && p[1][0]) {
