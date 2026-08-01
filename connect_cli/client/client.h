@@ -31,6 +31,7 @@ typedef struct {
     int sockfd;
     bool connected;
     bool logged_in;
+    bool logout_pending;
     bool is_admin;
     char username[MAX_USERNAME];
     char current_room[MAX_ROOM_NAME];
@@ -44,6 +45,8 @@ typedef struct {
     int room_count;
 
     char typing[MAX_USERNAME];
+    time_t typing_at;
+    time_t last_typed;
 
     char input[MAX_MESSAGE];
     int input_len;

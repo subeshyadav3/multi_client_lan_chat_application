@@ -177,6 +177,14 @@ void cmd_process(App *app, const char *line) {
     } else if (strcmp(cmd, "quit") == 0 || strcmp(cmd, "exit") == 0) {
         if (app->connected) net_send_line(app->sockfd, "LOGOUT");
         client_quit(app);
+    } else if (strcmp(cmd, "logout") == 0) {
+        if (app->logged_in) {
+            net_send_line(app->sockfd, "LOGOUT");
+            app->logout_pending = true;
+            tui_add_notify(app, "Logging out...");
+        } else {
+            tui_add_line(app, LN_ERROR, "You are not logged in");
+        }
     } else if (strcmp(cmd, "msg") == 0) {
         char user[MAX_USERNAME] = {0}; char text[MAX_MESSAGE] = {0};
         sscanf(rest, "%31s %2047[^\n]", user, text);
@@ -426,11 +434,14 @@ void handle_line(App *app, const char *line) {
         char atext[MAX_MESSAGE];
         strncpy(atext, p[2], MAX_MESSAGE-1);
         char *nl = strchr(atext, '\n'); if (nl) *nl = 0;
-        tui_add_line(app, LN_ANNOUNCE, "[ANNOUNCEMENT] %s", atext);
+        const char *who = p[1][0] ? p[1] : "server";
+        const char *when = p[3][0] ? p[3] : "?";
+        tui_add_line(app, LN_ANNOUNCE, "[ANNOUNCEMENT] %s @ %s: %s", who, when, atext);
     } else if (strcmp(p[0], "TYPING") == 0 && p[2][0]) {
         if (strcmp(p[2], app->username) != 0) {
             strncpy(app->typing, p[2], MAX_USERNAME-1);
             app->typing[MAX_USERNAME-1] = 0;
+            app->typing_at = time(NULL);
         }
     } else if (strcmp(p[0], "USERS") == 0) {
         update_user_list(app, p[1]);
@@ -565,6 +576,13 @@ static void push_history(App *app, const char *s) {
     app->history_index = app->history_count;
 }
 
+static void send_typing(App *app) {
+    if (!app || !app->connected || !app->logged_in) return;
+    char out[128];
+    snprintf(out, sizeof(out), "TYPING|%s", app->current_room);
+    net_send_line(app->sockfd, out);
+}
+
 static void process_input(App *app) {
     if (app->input_len == 0) return;
     char inp[MAX_MESSAGE];
@@ -652,103 +670,136 @@ int main(int argc, char **argv) {
 
     tui_enter_raw();
 
-    int fd = net_connect(host, port);
-    if (fd < 0) {
-        tui_restore();
-        printf("Failed to connect to %s:%d\n", host, port);
-        return 1;
-    }
-    app.sockfd = fd;
-    app.connected = true;
-    tui_add_notify(&app, "Connected to %s:%d. Enter your username:", host, port);
-    tui_draw(&app);
-
-    /* Optional auto-login: chatclient --user <u> --pass <p> (or positional) */
-    if (user && pass) {
-        strncpy(app.username, user, MAX_USERNAME - 1);
-        app.username[MAX_USERNAME - 1] = 0;
-        char out[160];
-        snprintf(out, sizeof(out), "LOGIN|%s|%s", user, pass);
-        net_send_line(fd, out);
-        app.login_step = 0;
-        tui_add_notify(&app, "Logging in as %s...", user);
-    }
-
     char rbuf[BUFFER_SIZE];
     char rline[BUFFER_SIZE];
-    size_t rpos = 0;
 
-    while (app.connected && !g_quit) {
-        fd_set rfds;
-        FD_ZERO(&rfds);
-        FD_SET(STDIN_FILENO, &rfds);
-        FD_SET(fd, &rfds);
-        struct timeval tv = {0, 100000};
-        int maxfd = (fd > STDIN_FILENO ? fd : STDIN_FILENO) + 1;
-        int r = select(maxfd, &rfds, NULL, NULL, &tv);
-        if (r < 0) {
-            if (errno == EINTR) continue;
-            break;
+    bool first_connect = true;
+    while (!g_quit) {
+        int fd = net_connect(host, port);
+        if (fd < 0) {
+            tui_restore();
+            printf("Failed to connect to %s:%d\n", host, port);
+            return 1;
         }
+        app.sockfd = fd;
+        app.connected = true;
+        app.logout_pending = false;
 
-        if (FD_ISSET(fd, &rfds)) {
-            ssize_t n = recv(fd, rbuf, sizeof(rbuf) - 1, 0);
-            if (n <= 0) {
-                tui_add_notify(&app, "Disconnected from server.");
-                app.connected = false;
+        /* Reset to the login screen after a logout/reconnect. */
+        app.logged_in = false;
+        app.is_admin = false;
+        app.username[0] = 0;
+        app.current_room[0] = 0;
+        strncpy(app.current_room, "general", MAX_ROOM_NAME - 1);
+        app.login_step = 1;
+        app.mask_input = 0;
+        app.line_count = 0;
+        app.user_count = 0;
+        app.room_count = 0;
+        app.typing[0] = 0;
+        app.offer_count = 0;
+        app.receiving = false;
+        strcpy(app.input, ""); app.input_len = 0;
+
+        tui_add_notify(&app, "Connected to %s:%d. Enter your username:", host, port);
+        tui_draw(&app);
+
+        /* Optional auto-login: chatclient --user <u> --pass <p> (or positional).
+         * Only on the very first connection; a later /logout must re-prompt. */
+        if (user && pass && first_connect) {
+            strncpy(app.username, user, MAX_USERNAME - 1);
+            app.username[MAX_USERNAME - 1] = 0;
+            char out[160];
+            snprintf(out, sizeof(out), "LOGIN|%s|%s", user, pass);
+            net_send_line(fd, out);
+            app.login_step = 0;
+            tui_add_notify(&app, "Logging in as %s...", user);
+        }
+        first_connect = false;
+
+        size_t rpos = 0;
+        while (app.connected && !g_quit) {
+            fd_set rfds;
+            FD_ZERO(&rfds);
+            FD_SET(STDIN_FILENO, &rfds);
+            FD_SET(fd, &rfds);
+            struct timeval tv = {0, 100000};
+            int maxfd = (fd > STDIN_FILENO ? fd : STDIN_FILENO) + 1;
+            int r = select(maxfd, &rfds, NULL, NULL, &tv);
+            if (r < 0) {
+                if (errno == EINTR) continue;
                 break;
             }
-            rbuf[n] = 0;
-            for (ssize_t i = 0; i < n; i++) {
-                if (rbuf[i] == '\n') {
-                    rline[rpos] = 0;
-                    rpos = 0;
-                    handle_line(&app, rline);
-                } else if (rpos < sizeof(rline) - 1) {
-                    rline[rpos++] = rbuf[i];
+
+            if (FD_ISSET(fd, &rfds)) {
+                ssize_t n = recv(fd, rbuf, sizeof(rbuf) - 1, 0);
+                if (n <= 0) {
+                    if (app.logout_pending) break;
+                    tui_add_notify(&app, "Disconnected from server.");
+                    app.connected = false;
+                    break;
+                }
+                rbuf[n] = 0;
+                for (ssize_t i = 0; i < n; i++) {
+                    if (rbuf[i] == '\n') {
+                        rline[rpos] = 0;
+                        rpos = 0;
+                        handle_line(&app, rline);
+                    } else if (rpos < sizeof(rline) - 1) {
+                        rline[rpos++] = rbuf[i];
+                    }
                 }
             }
-        }
 
-        if (FD_ISSET(STDIN_FILENO, &rfds)) {
-            char c;
-            if (read(STDIN_FILENO, &c, 1) != 1) continue;
-            if (c == 3) { g_quit = 1; break; }        /* Ctrl-C */
-            else if (c == 10 || c == 13) process_input(&app);
-            else if (c == 127 || c == 8) {             /* backspace */
-                if (app.input_len > 0) app.input[--app.input_len] = 0;
-            } else if (c == 27) {                      /* escape / arrows */
-                char seq[3]; seq[0] = c;
-                if (read(STDIN_FILENO, &seq[1], 1) == 1 && seq[1] == '[') {
-                    if (read(STDIN_FILENO, &seq[2], 1) == 1) {
-                        if (seq[2] == 'A') {           /* up */
-                            if (app.history_index > 0) {
-                                app.history_index--;
-                                tui_set_input(&app, app.history[app.history_index]);
-                            }
-                        } else if (seq[2] == 'B') {    /* down */
-                            if (app.history_index < app.history_count) {
-                                app.history_index++;
-                                if (app.history_index < app.history_count)
+            if (FD_ISSET(STDIN_FILENO, &rfds)) {
+                char c;
+                if (read(STDIN_FILENO, &c, 1) != 1) continue;
+                if (c == 3) { g_quit = 1; break; }        /* Ctrl-C */
+                else if (c == 10 || c == 13) process_input(&app);
+                else if (c == 127 || c == 8) {             /* backspace */
+                    if (app.input_len > 0) app.input[--app.input_len] = 0;
+                } else if (c == 27) {                      /* escape / arrows */
+                    char seq[3]; seq[0] = c;
+                    if (read(STDIN_FILENO, &seq[1], 1) == 1 && seq[1] == '[') {
+                        if (read(STDIN_FILENO, &seq[2], 1) == 1) {
+                            if (seq[2] == 'A') {           /* up */
+                                if (app.history_index > 0) {
+                                    app.history_index--;
                                     tui_set_input(&app, app.history[app.history_index]);
-                                else { strcpy(app.input, ""); app.input_len = 0; }
+                                }
+                            } else if (seq[2] == 'B') {    /* down */
+                                if (app.history_index < app.history_count) {
+                                    app.history_index++;
+                                    if (app.history_index < app.history_count)
+                                        tui_set_input(&app, app.history[app.history_index]);
+                                    else { strcpy(app.input, ""); app.input_len = 0; }
+                                }
                             }
                         }
                     }
-                }
             } else if (c >= 32 && c < 127) {
                 if (app.input_len < (int)sizeof(app.input) - 1)
                     app.input[app.input_len++] = c;
                 app.input[app.input_len] = 0;
+                app.last_typed = time(NULL);
+                send_typing(&app);
             }
         }
 
+        /* Auto-clear typing indicator after 2.5s of silence. */
+        if (app.typing[0] && (time(NULL) - app.typing_at) > 2) {
+            app.typing[0] = 0;
+        }
         try_send_chunk(&app);
         tui_draw(&app);
+        }
+
+        net_close(fd);
+        app.connected = false;
+        if (!app.logout_pending || g_quit) break;
     }
 
     tui_restore();
-    net_close(fd);
     return 0;
 }
 
