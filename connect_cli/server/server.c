@@ -19,8 +19,11 @@
 #include "room.h"
 
 /* ── File upload permission token system ── */
-#define MAX_CONCURRENT_UPLOADS 5
+#define MAX_CONCURRENT_UPLOADS 2
+#define MAX_TOTAL_UPLOAD_BYTES (1024 * 1024)
+#define MAX_QUEUE_DEPTH 16
 #define UPLOAD_TIMEOUT_SEC 30
+#define QUEUE_TIMEOUT_SEC 120
 #define TOKEN_LEN 16
 #define ROOM_HISTORY_MAX 50
 
@@ -36,9 +39,34 @@ typedef struct {
 
 static UploadSlot upload_slots[MAX_CONCURRENT_UPLOADS];
 static pthread_mutex_t upload_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+/* ── FIFO upload queue ──
+ * When the active limits are reached, a FILE_REQUEST is queued here instead of
+ * being rejected, and the client is told "FILE_WAIT|<filename>|<position>".
+ * It is promoted to FILE_GRANTED as soon as a slot + size budget frees up. */
+struct Client;
+typedef struct UploadQueueEntry {
+    char sender[MAX_USERNAME];
+    char filename[MAX_FILENAME];
+    char recipient[MAX_USERNAME];
+    long size;
+    struct Client *client;
+    time_t queued_at;
+    struct UploadQueueEntry *next;
+} UploadQueueEntry;
+
+static UploadQueueEntry *upload_queue_head = NULL;
+static UploadQueueEntry *upload_queue_tail = NULL;
+static int upload_queue_count = 0;
+
+static void upload_process_queue(void);
+static void upload_expire_queue(void);
+static void upload_queue_remove_client(struct Client *c);
+
 static volatile sig_atomic_t server_running = 1;
 
-/* Deactivate upload slots whose grant has gone stale without data. */
+/* Deactivate upload slots whose grant has gone stale without data, and drop
+ * queue entries whose wait timed out. */
 static void upload_expire_stale(void) {
     time_t now = time(NULL);
     pthread_mutex_lock(&upload_mutex);
@@ -49,6 +77,8 @@ static void upload_expire_stale(void) {
         }
     }
     pthread_mutex_unlock(&upload_mutex);
+    upload_expire_queue();
+    upload_process_queue();
 }
 
 typedef struct Client {
@@ -441,6 +471,188 @@ static void finish_join(Client *c, const char *room) {
     snprintf(msg, sizeof(msg), "NOTIFY|%s joined the room.\n", c->username);
     broadcast_room(room, msg, c);
 }
+
+/* ── upload queue helpers (all share upload_mutex) ── */
+
+/* Sum of sizes of currently-granted (in-flight) uploads. */
+static long upload_active_bytes(void) {
+    long total = 0;
+    for (int i = 0; i < MAX_CONCURRENT_UPLOADS; i++)
+        if (upload_slots[i].active) total += upload_slots[i].size;
+    return total;
+}
+
+/* Can a new transfer of `size` bytes start right now? */
+static bool upload_can_accept(long size) {
+    for (int i = 0; i < MAX_CONCURRENT_UPLOADS; i++)
+        if (!upload_slots[i].active)
+            return upload_active_bytes() + size <= MAX_TOTAL_UPLOAD_BYTES;
+    return false;
+}
+
+/* Add the request to the FIFO queue and reply FILE_WAIT with its position.
+ * Caller must hold upload_mutex. */
+static void upload_enqueue(Client *c, const char *sender, const char *filename,
+                           const char *recipient, long size) {
+    if (upload_queue_count >= MAX_QUEUE_DEPTH) {
+        char err[256];
+        snprintf(err, sizeof(err), "FILE_DENIED|%s|%s|Upload queue is full, try again later\n",
+                 filename, sender);
+        send(c->sockfd, err, strlen(err), 0);
+        log_message("FILE", "%s DENIED '%s': queue full (%d queued)", sender, filename, upload_queue_count);
+        return;
+    }
+    UploadQueueEntry *e = calloc(1, sizeof(UploadQueueEntry));
+    if (!e) {
+        char err[256];
+        snprintf(err, sizeof(err), "FILE_DENIED|%s|%s|Server out of memory\n", filename, sender);
+        send(c->sockfd, err, strlen(err), 0);
+        return;
+    }
+    strncpy(e->sender, sender, MAX_USERNAME - 1);
+    strncpy(e->filename, filename, MAX_FILENAME - 1);
+    strncpy(e->recipient, recipient ? recipient : "", MAX_USERNAME - 1);
+    e->size = size;
+    e->client = c;
+    e->queued_at = time(NULL);
+
+    int pos = upload_queue_count + 1;
+    if (upload_queue_tail) upload_queue_tail->next = e;
+    else                   upload_queue_head = e;
+    upload_queue_tail = e;
+    upload_queue_count++;
+
+    char wait[256];
+    snprintf(wait, sizeof(wait), "FILE_WAIT|%s|%d|%ld\n", filename, pos, size);
+    send(c->sockfd, wait, strlen(wait), 0);
+    log_message("FILE", "%s QUEUED '%s' (%ld bytes) at position %d (in-flight %ld/%ld)",
+                sender, filename, size, pos, upload_active_bytes(), (long)MAX_TOTAL_UPLOAD_BYTES);
+}
+
+/* Grant one queued entry: fill a slot, notify the owner, forward the offer. */
+static void upload_grant_one(UploadQueueEntry *e) {
+    if (!e || !e->client || !e->client->active) return;
+
+    char token[TOKEN_LEN + 1] = {0};
+    unsigned h = (unsigned)(time(NULL) ^ (uintptr_t)e->client ^ (unsigned)rand());
+    for (int i = 0; i < TOKEN_LEN; i++) {
+        int r = (h >> (i * 2)) & 0xf;
+        token[i] = "0123456789abcdef"[r % 16];
+        h = h * 1103515245u + 12345u;
+    }
+    token[TOKEN_LEN] = '\0';
+
+    pthread_mutex_lock(&upload_mutex);
+    int slot = -1;
+    for (int i = 0; i < MAX_CONCURRENT_UPLOADS; i++) {
+        if (!upload_slots[i].active) { slot = i; break; }
+    }
+    if (slot >= 0) {
+        upload_slots[slot].active = true;
+        strncpy(upload_slots[slot].token, token, TOKEN_LEN);
+        strncpy(upload_slots[slot].sender, e->sender, MAX_USERNAME - 1);
+        strncpy(upload_slots[slot].filename, e->filename, MAX_FILENAME - 1);
+        strncpy(upload_slots[slot].recipient, e->recipient, MAX_USERNAME - 1);
+        upload_slots[slot].size = e->size;
+        upload_slots[slot].started_at = time(NULL);
+    }
+    pthread_mutex_unlock(&upload_mutex);
+    if (slot < 0) return;
+
+    total_files++;
+    transfer_add(e->sender, e->filename, e->size, e->recipient);
+
+    char grant[512];
+    snprintf(grant, sizeof(grant), "FILE_GRANTED|%s|%s|%s|%ld\n",
+             e->sender, e->filename, token, e->size);
+    safe_send(e->client, grant, strlen(grant));
+
+    char fwd[512];
+    snprintf(fwd, sizeof(fwd), "FILE_OFFER|%s|%s|%ld|%s\n",
+             e->sender, e->filename, e->size, e->recipient);
+    if (e->recipient[0]) send_to_user(e->recipient, fwd);
+    else broadcast(fwd, e->client);
+
+    log_message("FILE", "%s GRANTED from queue token %s for '%s' (%ld bytes) slot=%d",
+                e->sender, token, e->filename, e->size, slot);
+}
+
+/* Drop queue entries whose wait timed out (reply FILE_DENIED to the owner). */
+static void upload_expire_queue(void) {
+    time_t now = time(NULL);
+    pthread_mutex_lock(&upload_mutex);
+    UploadQueueEntry **pp = &upload_queue_head;
+    while (*pp) {
+        if ((now - (*pp)->queued_at) > QUEUE_TIMEOUT_SEC) {
+            UploadQueueEntry *tmp = *pp;
+            *pp = tmp->next;
+            if (tmp->client && tmp->client->active) {
+                char err[256];
+                snprintf(err, sizeof(err),
+                         "FILE_DENIED|%s|%s|Upload wait timed out\n",
+                         tmp->filename, tmp->sender);
+                send(tmp->client->sockfd, err, strlen(err), 0);
+            }
+            free(tmp);
+            upload_queue_count--;
+        } else {
+            pp = &((*pp)->next);
+        }
+    }
+    if (!upload_queue_head) upload_queue_tail = NULL;
+    else {
+        UploadQueueEntry *t = upload_queue_head;
+        while (t->next) t = t->next;
+        upload_queue_tail = t;
+    }
+    pthread_mutex_unlock(&upload_mutex);
+}
+
+/* Start as many queued transfers as the active limits allow. */
+static void upload_process_queue(void) {
+    UploadQueueEntry *head = NULL;
+    pthread_mutex_lock(&upload_mutex);
+    while (upload_queue_head) {
+        UploadQueueEntry *e = upload_queue_head;
+        if (!upload_can_accept(e->size) || !e->client || !e->client->active) break;
+        upload_queue_head = e->next;
+        if (!upload_queue_head) upload_queue_tail = NULL;
+        upload_queue_count--;
+        e->next = head;
+        head = e;
+    }
+    pthread_mutex_unlock(&upload_mutex);
+    while (head) {
+        UploadQueueEntry *e = head;
+        head = e->next;
+        upload_grant_one(e);
+        free(e);
+    }
+}
+
+/* Drop every queued entry belonging to a disconnected client. */
+static void upload_queue_remove_client(Client *c) {
+    pthread_mutex_lock(&upload_mutex);
+    UploadQueueEntry **pp = &upload_queue_head;
+    while (*pp) {
+        if ((*pp)->client == c) {
+            UploadQueueEntry *tmp = *pp;
+            *pp = tmp->next;
+            free(tmp);
+            upload_queue_count--;
+        } else {
+            pp = &((*pp)->next);
+        }
+    }
+    if (!upload_queue_head) upload_queue_tail = NULL;
+    else {
+        UploadQueueEntry *t = upload_queue_head;
+        while (t->next) t = t->next;
+        upload_queue_tail = t;
+    }
+    pthread_mutex_unlock(&upload_mutex);
+}
+
 static void *handle_client(void *arg) {
     Client *c = (Client*)arg;
     char buf[BUFFER_SIZE];
@@ -820,7 +1032,9 @@ static void *handle_client(void *arg) {
                         send(c->sockfd, err, strlen(err), 0);
                     }
                 } else if (strcmp(cmd, "FILE_REQUEST") == 0 && parts >= 3) {
-                    /* FILE_REQUEST|filename|size|target   (target empty = broadcast to room) */
+                    /* FILE_REQUEST|filename|size|target   (target empty = broadcast to room)
+                     * If the active limits allow, grant a slot now; otherwise enqueue
+                     * the request and reply FILE_WAIT with its queue position. */
                     const char *raw = arg1;
                     long fsize = atol(arg2);
                     char target[MAX_USERNAME] = {0};
@@ -828,57 +1042,59 @@ static void *handle_client(void *arg) {
                     char safe_name[MAX_FILENAME];
                     sanitize_filename(safe_name, sizeof(safe_name), raw);
 
-                    if (fsize > MAX_FILE_SIZE) {
+                    if (fsize <= 0 || fsize > MAX_FILE_SIZE) {
                         char err[256];
-                        snprintf(err, sizeof(err), "FILE_DENIED|%s|%s|File too large\n", safe_name, c->username);
+                        snprintf(err, sizeof(err), "FILE_DENIED|%s|%s|File too large or invalid size\n", safe_name, c->username);
                         send(c->sockfd, err, strlen(err), 0);
                     } else {
-                        int slot = -1;
                         pthread_mutex_lock(&upload_mutex);
-                        for (int i = 0; i < MAX_CONCURRENT_UPLOADS; i++) {
-                            if (!upload_slots[i].active) { slot = i; break; }
-                        }
-                        pthread_mutex_unlock(&upload_mutex);
-                        if (slot < 0) {
-                            char err[256];
-                            snprintf(err, sizeof(err), "FILE_DENIED|%s|%s|Too many concurrent uploads\n", safe_name, c->username);
-                            send(c->sockfd, err, strlen(err), 0);
-                        } else {
-                            char token[TOKEN_LEN + 1] = {0};
-                            unsigned h = (unsigned)(time(NULL) ^ (uintptr_t)c ^ (unsigned)rand());
-                            for (int i = 0; i < TOKEN_LEN; i++) {
-                                int r = (h >> (i * 2)) & 0xf;
-                                token[i] = "0123456789abcdef"[r % 16];
-                                h = h * 1103515245u + 12345u;
-                            }
-                            token[TOKEN_LEN] = '\0';
-
-                            pthread_mutex_lock(&upload_mutex);
-                            upload_slots[slot].active = true;
-                            strncpy(upload_slots[slot].token, token, TOKEN_LEN);
-                            strncpy(upload_slots[slot].sender, c->username, MAX_USERNAME - 1);
-                            strncpy(upload_slots[slot].filename, safe_name, MAX_FILENAME - 1);
-                            strncpy(upload_slots[slot].recipient, target, MAX_USERNAME - 1);
-                            upload_slots[slot].size = fsize;
-                            upload_slots[slot].started_at = time(NULL);
+                        if (!upload_can_accept(fsize)) {
+                            upload_enqueue(c, c->username, safe_name, target, fsize);
                             pthread_mutex_unlock(&upload_mutex);
+                        } else {
+                            int slot = -1;
+                            for (int i = 0; i < MAX_CONCURRENT_UPLOADS; i++) {
+                                if (!upload_slots[i].active) { slot = i; break; }
+                            }
+                            if (slot < 0) {
+                                upload_enqueue(c, c->username, safe_name, target, fsize);
+                                pthread_mutex_unlock(&upload_mutex);
+                            } else {
+                                char token[TOKEN_LEN + 1] = {0};
+                                unsigned h = (unsigned)(time(NULL) ^ (uintptr_t)c ^ (unsigned)rand());
+                                for (int i = 0; i < TOKEN_LEN; i++) {
+                                    int r = (h >> (i * 2)) & 0xf;
+                                    token[i] = "0123456789abcdef"[r % 16];
+                                    h = h * 1103515245u + 12345u;
+                                }
+                                token[TOKEN_LEN] = '\0';
 
-                            total_files++;
-                            transfer_add(c->username, safe_name, fsize, target);
+                                upload_slots[slot].active = true;
+                                strncpy(upload_slots[slot].token, token, TOKEN_LEN);
+                                strncpy(upload_slots[slot].sender, c->username, MAX_USERNAME - 1);
+                                strncpy(upload_slots[slot].filename, safe_name, MAX_FILENAME - 1);
+                                strncpy(upload_slots[slot].recipient, target, MAX_USERNAME - 1);
+                                upload_slots[slot].size = fsize;
+                                upload_slots[slot].started_at = time(NULL);
+                                pthread_mutex_unlock(&upload_mutex);
 
-                            char grant[512];
-                            snprintf(grant, sizeof(grant), "FILE_GRANTED|%s|%s|%s|%ld\n",
-                                c->username, safe_name, token, fsize);
-                            send(c->sockfd, grant, strlen(grant), 0);
+                                total_files++;
+                                transfer_add(c->username, safe_name, fsize, target);
 
-                            char fwd[512];
-                            snprintf(fwd, sizeof(fwd), "FILE_OFFER|%s|%s|%ld|%s\n",
-                                c->username, safe_name, fsize, target);
-                            if (target[0]) send_to_user(target, fwd);
-                            else broadcast(fwd, c);
+                                char grant[512];
+                                snprintf(grant, sizeof(grant), "FILE_GRANTED|%s|%s|%s|%ld\n",
+                                    c->username, safe_name, token, fsize);
+                                send(c->sockfd, grant, strlen(grant), 0);
 
-                            log_message("FILE", "%s GRANTED token %s for '%s' (%ld bytes) slot=%d",
-                                c->username, token, safe_name, fsize, slot);
+                                char fwd[512];
+                                snprintf(fwd, sizeof(fwd), "FILE_OFFER|%s|%s|%ld|%s\n",
+                                    c->username, safe_name, fsize, target);
+                                if (target[0]) send_to_user(target, fwd);
+                                else broadcast(fwd, c);
+
+                                log_message("FILE", "%s GRANTED token %s for '%s' (%ld bytes) slot=%d",
+                                    c->username, token, safe_name, fsize, slot);
+                            }
                         }
                     }
                 } else if (strcmp(cmd, "FILE_OFFER") == 0 && parts >= 3) {
@@ -965,6 +1181,7 @@ static void *handle_client(void *arg) {
                             }
                         }
                         pthread_mutex_unlock(&upload_mutex);
+                        upload_process_queue();
                         log_message("FILE", "File '%s' from %s completed", arg1, c->username);
                     }
                 } else if (strcmp(cmd, "FILE_ACCEPT") == 0 && parts >= 2) {
@@ -1006,6 +1223,7 @@ static void *handle_client(void *arg) {
                             }
                         }
                         pthread_mutex_unlock(&upload_mutex);
+                        upload_process_queue();
                         log_message("FILE", "%s rejected file '%s' from %s: %s", c->username, arg2, arg1, arg3);
                     } else {
                         char err[256];
@@ -1040,6 +1258,8 @@ static void *handle_client(void *arg) {
             upload_slots[i].active = false;
     }
     pthread_mutex_unlock(&upload_mutex);
+    upload_queue_remove_client(c);
+    upload_process_queue();
     pthread_mutex_lock(&transfer_mutex);
     {
         FileTransfer **pp = &transfer_list;

@@ -127,7 +127,11 @@ passwords so plaintext is never saved.
 
 **Data structures**
 - `UploadSlot` (line 27): a granted "permission to upload" — token, sender,
-  filename, recipient, size, timestamp, active flag. Only 5 concurrent uploads.
+  filename, recipient, size, timestamp, active flag. Max **2 concurrent**
+  uploads.
+- `UploadQueueEntry` (line 48): a `FILE_REQUEST` that could not start because the
+  limits were reached — stored in a **FIFO queue** (`upload_queue_head/tail`),
+  each with the owning `Client*` and `queued_at` time.
 - `Client` (line 54): one per socket — fd, address, username, room, admin flag,
   thread id, linked-list `next`.
 - `UserAccount` (line 77): username/password/active for normal users.
@@ -142,7 +146,13 @@ Global state is protected by named mutexes: `client_mutex`, `user_mutex`,
 
 | Function | Line | What it does |
 |----------|------|--------------|
-| `upload_expire_stale()` | 42 | Every second in the main loop, deactivate upload slots older than 30 s so dead senders don't block the 5 slots |
+| `upload_expire_stale()` | 70 | Every second in the main loop, deactivate upload slots older than 30 s so dead senders don't block the 2 slots, then expire stale queue entries and promote the queue |
+| `upload_expire_queue()` | 581 | Drop queue entries waiting longer than `QUEUE_TIMEOUT_SEC` (120 s), replying `FILE_DENIED|…|Upload wait timed out` |
+| `upload_active_bytes()` / `upload_can_accept()` | 478/486 | Sum of in-flight bytes; whether a new transfer of `size` bytes fits the **combined 1 MB budget** (`MAX_TOTAL_UPLOAD_BYTES`) with a free slot |
+| `upload_enqueue()` | 495 | Add a request to the FIFO queue, reply `FILE_WAIT|filename|position|size` (or `FILE_DENIED` if the queue is full) |
+| `upload_grant_one()` | 533 | Pop a queued entry: fill a slot with a fresh token, send `FILE_GRANTED` to the owner, forward the `FILE_OFFER` |
+| `upload_process_queue()` | 612 | While limits allow, promote queued entries (called after every slot release: `FILE_END`, `FILE_REJECT`, timeout, disconnect) |
+| `upload_queue_remove_client()` | 630 | Purge a disconnected client's queued requests |
 | `history_init()` | 103 | Reset all room histories |
 | `history_for_room()` | 108 | Look up a room's history or create one (max 32) |
 | `history_add()` | 122 | Append a message line; drop oldest when count > 50 |
@@ -213,7 +223,7 @@ this loop:
 | `DELETE_USER` | 752 | Admin only — kick if online, remove account, persist |
 | `RESET_PASS` | 784 | Admin only — new hashed password |
 | `LIST_ACCOUNTS` | 805 | Admin only |
-| `FILE_REQUEST` | 822 | Validate size, allocate an upload slot + random 16-hex token, reply `FILE_GRANTED`, forward `FILE_OFFER` to target (or room) |
+| `FILE_REQUEST` | 822 | Validate size, check the active limits (≤ 2 concurrent, combined ≤ 1 MB); grant a slot + token and reply `FILE_GRANTED`, or enqueue the request and reply `FILE_WAIT|filename|position` |
 | `FILE_OFFER` | 884 | Legacy direct offer path (no slot) |
 | `FILE_DATA` | 894 | Forward one base64 chunk to the recipient, but only if the embedded token matches the slot (authorization) |
 | `FILE_END` | 946 | Notify recipient transfer complete, free slot + transfer record |
@@ -362,6 +372,7 @@ The inverse of `cmd_process`. Parses the first field and reacts:
 | `ERROR` | 469 | show error |
 | `FILE_GRANTED` | 471 | store token, wait for recipient accept (state 2) |
 | `FILE_DENIED` | 478 | show reason, abort |
+| `FILE_WAIT` | 483 | show "queued at position N", keep waiting for the later `FILE_GRANTED` (state 1) |
 | `FILE_OFFER` | 482 | push a pending offer |
 | `FILE_ACCEPT` | 484 | recipient accepted → open file, start streaming (state 3) |
 | `FILE_REJECT` | 496 | recipient declined → abort |
@@ -476,8 +487,8 @@ Every message is a plain-text, newline-terminated line: `TYPE|f1|f2|…`.
 **Server → Client:** `LOGIN_OK`, `LOGIN_FAIL`, `PUBLIC`, `PRIVATE`, `NOTIFY`,
 `ANNOUNCE`, `TYPING`, `USERS`, `ROOMS`, `JOIN_OK`, `JOIN_FAIL`,
 `ROOM_CREATED`, `STATUS`, `ACCOUNT_LIST`, `KICK`, `ERROR`, `FILE_GRANTED`,
-`FILE_DENIED`, `FILE_OFFER`, `FILE_ACCEPT`, `FILE_REJECT`, `FILE_DATA`,
-`FILE_END`.
+`FILE_DENIED`, `FILE_WAIT`, `FILE_OFFER`, `FILE_ACCEPT`, `FILE_REJECT`,
+`FILE_DATA`, `FILE_END`.
 
 ---
 
@@ -486,7 +497,7 @@ Every message is a plain-text, newline-terminated line: `TYPE|f1|f2|…`.
 ```
 Sender                     Server                        Recipient
   │  FILE_REQUEST|name|size|target ──►
-  │                     allocates slot + token
+  │          limits free? ── yes ──► allocates slot + token
   │  ◄── FILE_GRANTED|sender|name|token|size
   │  ◄── FILE_OFFER|sender|name|size|target ────────► shows [1] offer
   │                                                    /accept or /reject
@@ -495,6 +506,16 @@ Sender                     Server                        Recipient
   │  ...repeat (2048-byte chunks)...
   │  FILE_END|name ──► ─────────────────────────────► rename .tmp → files/name
 ```
+
+**Queueing (when the server is busy):** if 2 files are already in flight or their
+combined size would exceed 1 MB, the server replies
+`FILE_WAIT|filename|position|size` and holds the request in a FIFO queue. The
+client shows "queued at position N" and keeps `send_state = 1`; the moment a slot
+frees (on `FILE_END`, `FILE_REJECT`, 30 s timeout, or disconnect) the queue is
+promoted and the client receives a normal `FILE_GRANTED` to start streaming. This
+prevents the server being overwhelmed by simultaneous uploads — excess requests
+**wait** instead of being dropped, and are themselves denied/timed out only if the
+queue is full or they wait longer than 120 s.
 
 Key security detail: the sender must present the **16-char token** in every
 `FILE_DATA`, so random clients cannot inject file chunks into another transfer.
