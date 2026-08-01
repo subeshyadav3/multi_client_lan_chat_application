@@ -519,8 +519,9 @@ static void *handle_client(void *arg) {
                     if (accepted) {
                         char ok[128]; snprintf(ok, sizeof(ok), "LOGIN_OK|%s\n", arg1);
                         send(c->sockfd, ok, strlen(ok), 0);
-                        char notify[256]; snprintf(notify, sizeof(notify), "NOTIFY|%s has joined the chat.\n", arg1);
-                        broadcast(notify, NULL);
+                        /* Do NOT broadcast "has joined the chat" — it spams every
+                         * room view (general) each time a user logs in, which is
+                         * annoying. The online user list already reflects presence. */
                         broadcast_user_list();
                         log_message("INFO", "User '%s' logged in from %s", arg1, inet_ntoa(c->addr.sin_addr));
                     }
@@ -567,9 +568,11 @@ static void *handle_client(void *arg) {
                                 char ok[128];
                                 snprintf(ok, sizeof(ok), "JOIN_OK|%s\n", room_name);
                                 send(c->sockfd, ok, strlen(ok), 0);
-                                char msg[256];
-                                snprintf(msg, sizeof(msg), "NOTIFY|%s joined room %s.\n", c->username, room_name);
-                                broadcast_room(room_name, msg, NULL);
+                                /* Join notifications are intentionally not broadcast:
+                                 * they spam every member of the room on every rejoin
+                                 * and were reported as annoying. The room user list
+                                 * (broadcast_user_list, called elsewhere) reflects
+                                 * presence. */
                             }
                         } else {
                             strncpy(c->current_room, room_name, MAX_ROOM_NAME-1);
@@ -578,9 +581,6 @@ static void *handle_client(void *arg) {
                             char ok[128];
                             snprintf(ok, sizeof(ok), "JOIN_OK|%s\n", room_name);
                             send(c->sockfd, ok, strlen(ok), 0);
-                            char msg[256];
-                            snprintf(msg, sizeof(msg), "NOTIFY|%s joined room %s.\n", c->username, room_name);
-                            broadcast_room(room_name, msg, NULL);
                         }
                     } else {
                         strncpy(c->current_room, room_name, MAX_ROOM_NAME-1);
@@ -589,9 +589,6 @@ static void *handle_client(void *arg) {
                         char ok[128];
                         snprintf(ok, sizeof(ok), "JOIN_OK|%s\n", room_name);
                         send(c->sockfd, ok, strlen(ok), 0);
-                        char msg[256];
-                        snprintf(msg, sizeof(msg), "NOTIFY|%s joined room %s.\n", c->username, room_name);
-                        broadcast_room(room_name, msg, NULL);
                     }
                 } else if (strcmp(cmd, "LEAVE") == 0 && parts >= 2) {
                     char prev_room[MAX_ROOM_NAME];
