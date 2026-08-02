@@ -1,6 +1,24 @@
 #ifndef SERVER_H
 #define SERVER_H
 
+/* server.h - the shared types, globals and public functions of the server.
+ *
+ * One header that every server module includes, so each file can see the
+ * shared data structures (Client, UserAccount, Cmd, ...) and call each
+ * other's exported functions. The module split is:
+ *
+ *   server.c     - main(), accept loop, shutdown
+ *   connection.c - one thread per client that reads commands
+ *   handlers.c   - one small function per non-file chat command
+ *   files.c      - file transfer (slots, FIFO queue, tokens, FILE_* cmds)
+ *   net.c        - client list + delivering bytes
+ *   users.c      - user accounts (SHA-256 passwords)
+ *   history.c    - per-room recent message history
+ *   room.c       - rooms (optionally password protected)
+ *   room_access.c- per-user access to protected rooms
+ *   logger.c     - file logging
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,45 +40,53 @@
 #include "logger.h"
 #include "room.h"
 
-/* ── File upload permission token system ── */
-#define MAX_CONCURRENT_UPLOADS 2
-#define MAX_TOTAL_UPLOAD_BYTES (1024 * 1024)
-#define MAX_QUEUE_DEPTH 16
-#define UPLOAD_TIMEOUT_SEC 30
-#define QUEUE_TIMEOUT_SEC 120
-#define TOKEN_LEN 16
-#define ROOM_HISTORY_MAX 50
+/* ================================================================ */
+/* File-upload permission token system                              */
+/* ================================================================ */
+/* Limits that control how many uploads / bytes the server allows at
+ * once, how deep the waiting FIFO queue may grow, and timeouts. */
+#define MAX_CONCURRENT_UPLOADS 2      /* how many uploads can run at once */
+#define MAX_TOTAL_UPLOAD_BYTES (1024 * 1024) /* total in-flight bytes cap */
+#define MAX_QUEUE_DEPTH 16            /* max entries waiting in the queue */
+#define UPLOAD_TIMEOUT_SEC 30         /* how long a granted slot stays valid */
+#define QUEUE_TIMEOUT_SEC 120         /* how long a queue entry may wait */
+#define TOKEN_LEN 16                  /* length of an upload permission token */
+#define ROOM_HISTORY_MAX 50           /* lines of history kept per room */
 
-/* One connected client. */
+/* ================================================================ */
+/* Core data structures                                             */
+/* ================================================================ */
+
+/* One connected client (verified once the user logs in). */
 typedef struct Client {
-    int sockfd;
-    struct sockaddr_in addr;
-    char username[MAX_USERNAME];
-    int status;
-    time_t login_time;
-    pthread_t thread;
-    bool active;
-    bool is_admin;
-    char current_room[MAX_ROOM_NAME];
-    struct Client *next;
+    int sockfd;                  /* the network socket for this client */
+    struct sockaddr_in addr;     /* where the client is connecting from */
+    char username[MAX_USERNAME]; /* the logged-in name ("" before login) */
+    int status;                  /* generic status flag */
+    time_t login_time;           /* when the client connected */
+    pthread_t thread;            /* the receive thread for this client */
+    bool active;                 /* false while being torn down */
+    bool is_admin;               /* true once admin login is verified */
+    char current_room[MAX_ROOM_NAME]; /* the room this client is in */
+    struct Client *next;         /* next client in the linked list */
 } Client;
 
-/* A user account (password stored as a SHA-256 hex string). */
+/* A registered user account (the password is a SHA-256 hex string). */
 typedef struct UserAccount {
     char username[MAX_USERNAME];
-    char password[128];
+    char password[128];          /* SHA-256 hex digest of the password */
     bool active;
     struct UserAccount *next;
 } UserAccount;
 
 /* An in-flight upload slot granted to a sender. */
 typedef struct {
-    char token[TOKEN_LEN + 1];
+    char token[TOKEN_LEN + 1];   /* random token the sender must present */
     char sender[MAX_USERNAME];
     char filename[MAX_FILENAME];
     char recipient[MAX_USERNAME];
     long size;
-    time_t started_at;
+    time_t started_at;           /* used to detect stale slots */
     bool active;
 } UploadSlot;
 
@@ -70,8 +96,8 @@ typedef struct UploadQueueEntry {
     char filename[MAX_FILENAME];
     char recipient[MAX_USERNAME];
     long size;
-    struct Client *client;
-    time_t queued_at;
+    struct Client *client;       /* who is waiting (to tell them FILE_WAIT) */
+    time_t queued_at;            /* used to detect a timed-out wait */
     struct UploadQueueEntry *next;
 } UploadQueueEntry;
 
@@ -79,7 +105,7 @@ typedef struct UploadQueueEntry {
 typedef struct FileTransfer {
     char sender[MAX_USERNAME];
     char filename[MAX_FILENAME];
-    char recipient[MAX_USERNAME]; /* empty = broadcast */
+    char recipient[MAX_USERNAME]; /* empty string = broadcast to room */
     long size;
     struct FileTransfer *next;
 } FileTransfer;
@@ -92,20 +118,26 @@ typedef struct {
     char a2[MAX_MESSAGE];
     char a3[256];
     char a4[256];
-    int parts;
-    const char *raw;
+    int parts;                   /* how many fields were filled in */
+    const char *raw;             /* the original, unparsed line */
 } Cmd;
 
-/* Shared runtime state. */
-extern volatile sig_atomic_t server_running;
-extern int server_sock;
-extern int total_messages, total_privmsgs, total_files;
-extern char admin_user[64];
-extern char admin_pass_hash[65];
-extern pthread_mutex_t user_mutex;
+/* ================================================================ */
+/* Shared runtime state (defined in the .c files)                   */
+/* ================================================================ */
+extern volatile sig_atomic_t server_running; /* false when we should quit */
+extern int server_sock;                      /* the listening socket */
+extern int total_messages, total_privmsgs, total_files; /* live counters */
+extern char admin_user[64];                  /* admin login name */
+extern char admin_pass_hash[65];             /* admin password hash */
+extern pthread_mutex_t user_mutex;           /* guards user_list */
 extern UserAccount *user_list;
-extern pthread_mutex_t client_mutex;   /* guards client_list */
+extern pthread_mutex_t client_mutex;         /* guards client_list */
 extern Client *client_list;
+
+/* ================================================================ */
+/* Public functions (each group lives in the module named in comments) */
+/* ================================================================ */
 
 /* net.c - client list, sockets, broadcasts */
 void net_spawn_client(int fd, struct sockaddr_in addr);
@@ -156,4 +188,4 @@ void dispatch_command(Client *c, Cmd *m);
 /* connection.c - per-client receive loop */
 void *handle_client(void *arg);
 
-#endif
+#endif /* SERVER_H */

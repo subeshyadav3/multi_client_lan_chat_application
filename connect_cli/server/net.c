@@ -1,26 +1,52 @@
 /* net.c - the connected-client list and everything that delivers bytes.
  *
- * Holds the single linked list of connected clients plus its mutex.
- * Broadcasting, per-user sends, client lookup/removal, the live user/room
- * list pushes, and small text helpers live here.
+ * This module owns the single linked list of connected clients
+ * (client_list) together with the mutex that protects it (client_mutex).
+ * It is the "plumbing" that the command handlers use to reach the network:
+ *
+ *    safe_send()          - write bytes to one socket (flags inactive on error)
+ *    net_client_find()    - look up a client node by username
+ *    net_send_to_user()   - deliver a line to one specific user
+ *    net_broadcast*()     - deliver a line to many users
+ *    net_client_remove()  - unlink a client and free its memory
+ *    net_spawn_client()   - wrap a fresh socket and start its receive thread
+ *
+ * Small text helpers used to build protocol lines also live here
+ * (net_list_append, net_get_timestamp, net_sanitize_filename).
  */
 #include "server.h"
 
+/* The list of everyone connected, plus the lock that guards it. */
 Client *client_list = NULL;
 pthread_mutex_t client_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-/* Send data with error checking; marks the client inactive on failure. */
+/* ------------------------------------------------------------------ */
+/* Low-level byte delivery                                             */
+/* ------------------------------------------------------------------ */
+
+/* Write `len` bytes to one client's socket.
+ * Returns true on success. If the socket errors (peer closed / reset),
+ * we mark the client inactive so its receive loop stops and the client
+ * gets cleaned up. This is the ONLY function that actually calls send()
+ * for the shared list paths.
+ */
 static bool safe_send(Client *c, const char *msg, size_t len) {
     if (!c || !c->active || !msg || len == 0) return false;
     ssize_t n = send(c->sockfd, msg, len, 0);
     if (n <= 0) {
-        c->active = false;
+        c->active = false;   /* the peer is gone; stop using this socket */
         return false;
     }
     return true;
 }
 
-/* Caller must hold client_mutex. */
+/* ------------------------------------------------------------------ */
+/* Lookup                                                             */
+/* ------------------------------------------------------------------ */
+
+/* Find the linked-list node for `username`, or NULL if not connected.
+ * IMPORTANT: the caller must already be holding client_mutex.
+ */
 Client *net_client_find(const char *username) {
     if (!username) return NULL;
     for (Client *c = client_list; c; c = c->next) {
@@ -29,18 +55,28 @@ Client *net_client_find(const char *username) {
     return NULL;
 }
 
+/* ------------------------------------------------------------------ */
+/* Delivering to one user / to everyone                               */
+/* ------------------------------------------------------------------ */
+
+/* Send `msg` to the (single) connected client with the given username.
+ * We lock the list so another thread can't free the client while we
+ * are writing to it.
+ */
 void net_send_to_user(const char *username, const char *msg) {
     if (!username || !msg) return;
     pthread_mutex_lock(&client_mutex);
     for (Client *c = client_list; c; c = c->next) {
         if (c->active && strcmp(c->username, username) == 0) {
             safe_send(c, msg, strlen(msg));
-            break;
+            break;   /* only one client can hold a username */
         }
     }
     pthread_mutex_unlock(&client_mutex);
 }
 
+/* Send `msg` to every active client currently inside the room `room`,
+ * skipping `except` (usually the sender themself). Used for PUBLIC chat. */
 void net_broadcast_room(const char *room, const char *msg, Client *except) {
     pthread_mutex_lock(&client_mutex);
     for (Client *c = client_list; c; c = c->next) {
@@ -51,6 +87,8 @@ void net_broadcast_room(const char *room, const char *msg, Client *except) {
     pthread_mutex_unlock(&client_mutex);
 }
 
+/* Send `msg` to every active client, skipping `except`. Used for
+ * the user/room lists, announcements and global notifications. */
 void net_broadcast(const char *msg, Client *except) {
     pthread_mutex_lock(&client_mutex);
     for (Client *c = client_list; c; c = c->next) {
@@ -61,34 +99,49 @@ void net_broadcast(const char *msg, Client *except) {
     pthread_mutex_unlock(&client_mutex);
 }
 
+/* ------------------------------------------------------------------ */
+/* Removing a client                                                  */
+/* ------------------------------------------------------------------ */
+
+/* Unlink `target` from client_list, close its socket and free it.
+ * Locking is needed because other threads may be walking the list. */
 void net_client_remove(Client *target) {
     pthread_mutex_lock(&client_mutex);
     Client **pp = &client_list;
     while (*pp) {
         if (*pp == target) {
-            *pp = target->next;
+            *pp = target->next;   /* skip over target in the list */
             break;
         }
         pp = &((*pp)->next);
     }
     pthread_mutex_unlock(&client_mutex);
     if (target->sockfd >= 0) close(target->sockfd);
-    free(target);
+    free(target);                 /* caller no longer uses this pointer */
 }
 
-/* Append `item` to a comma-separated list string, guarding the buffer size. */
+/* ------------------------------------------------------------------ */
+/* Text helpers used to build protocol lines                          */
+/* ------------------------------------------------------------------ */
+
+/* Append `item` to the comma-separated string `dst`, inserting `sep`
+ * (",") between items. Never writes past the end of the buffer
+ * (dst_sz bytes). This is how we build USERS / ROOMS / WHO lists.
+ */
 void net_list_append(char *dst, size_t dst_sz, const char *sep, const char *item) {
     size_t used = strlen(dst);
-    if (used > 0) {
+    if (used > 0) {                          /* not the first item: add separator */
         size_t sep_len = strlen(sep);
         if (used + sep_len + 1 < dst_sz) {
             strncat(dst, sep, dst_sz - used - 1);
             used += sep_len;
         }
     }
-    strncat(dst, item, dst_sz - used - 1);
+    strncat(dst, item, dst_sz - used - 1);   /* then the item itself */
 }
 
+/* Build and broadcast the current USERS|<names> line to everyone.
+ * Each name is followed by :1 (a placeholder the client ignores). */
 void net_broadcast_user_list(void) {
     char userlist[MAX_MESSAGE] = {0};
     pthread_mutex_lock(&client_mutex);
@@ -103,14 +156,16 @@ void net_broadcast_user_list(void) {
     net_broadcast(out, NULL);
 }
 
+/* Build and broadcast the current ROOMS|<names> line to everyone. */
 void net_broadcast_room_list(void) {
     char rooms[MAX_MESSAGE] = {0};
-    room_list(rooms, sizeof(rooms));
+    room_list(rooms, sizeof(rooms));   /* ask room.c for the list string */
     char out[MAX_MESSAGE + 64];
     snprintf(out, sizeof(out), "ROOMS|%s\n", rooms);
     net_broadcast(out, NULL);
 }
 
+/* Send the admin-only STATUS line (counts of users/messages, etc.). */
 void net_send_status(Client *c) {
     int online = 0;
     pthread_mutex_lock(&client_mutex);
@@ -123,7 +178,8 @@ void net_send_status(Client *c) {
     send(c->sockfd, out, strlen(out), 0);
 }
 
-/* Switch a client into `room`, replay history, confirm, and tell the others. */
+/* Complete a room join: remember the room, replay recent history to the
+ * joining client, send JOIN_OK back, and tell others in the room. */
 void net_finish_join(Client *c, const char *room) {
     strncpy(c->current_room, room, MAX_ROOM_NAME - 1);
     c->current_room[MAX_ROOM_NAME - 1] = '\0';
@@ -136,7 +192,9 @@ void net_finish_join(Client *c, const char *room) {
     net_broadcast_room(room, msg, c);
 }
 
-/* Make a safe filename: strip path separators and control characters. */
+/* Make a safe filename from `src`: strip path separators and control
+ * characters so a client can't use ../../ or a newline in a filename.
+ * If nothing survives we fall back to the literal name "file". */
 void net_sanitize_filename(char *dst, size_t dst_len, const char *src) {
     size_t j = 0;
     for (size_t i = 0; src[i] && j + 1 < dst_len; i++) {
@@ -148,13 +206,22 @@ void net_sanitize_filename(char *dst, size_t dst_len, const char *src) {
     if (j == 0) strncpy(dst, "file", dst_len - 1);
 }
 
+/* Fill `buf` with the current time formatted like "08:42 PM"
+ * (12-hour clock), used in PUBLIC / PRIVATE / ANNOUNCE lines. */
 void net_get_timestamp(char *buf, size_t len) {
     time_t t = time(NULL);
     strftime(buf, len, "%I:%M %p", localtime(&t));
 }
 
-/* Allocate a Client for a freshly accepted socket, register it in the list,
- * and run its handler in a detached thread. */
+/* ------------------------------------------------------------------ */
+/* Accepting a connection                                              */
+/* ------------------------------------------------------------------ */
+
+/* Wrap a freshly accepted socket in a Client node, add it to the global
+ * list, and start its own thread (handle_client from connection.c) that
+ * will read commands from that socket. The thread is detached so we do
+ * not have to join it later.
+ */
 void net_spawn_client(int fd, struct sockaddr_in addr) {
     Client *c = calloc(1, sizeof(Client));
     if (!c) { close(fd); return; }
@@ -166,7 +233,7 @@ void net_spawn_client(int fd, struct sockaddr_in addr) {
     c->current_room[0] = '\0';
 
     pthread_mutex_lock(&client_mutex);
-    c->next = client_list;
+    c->next = client_list;   /* insert at the head of the list */
     client_list = c;
     pthread_mutex_unlock(&client_mutex);
 
@@ -178,7 +245,8 @@ void net_spawn_client(int fd, struct sockaddr_in addr) {
     }
 }
 
-/* Close and free every remaining client (shutdown path). */
+/* Close and free every remaining client. This is only called during
+ * server shutdown, when no more work will arrive. */
 void net_close_all_clients(void) {
     pthread_mutex_lock(&client_mutex);
     while (client_list) {

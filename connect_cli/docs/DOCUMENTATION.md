@@ -1,160 +1,153 @@
-# ConnectHub v2 — Documentation
+# ConnectHub — Technical Documentation
 
-A terminal (CLI/TUI) chat application written in C with no external dependencies:
-threaded TCP server + a raw-ANSI/`termios` client driven by `select()`.
+A terminal (CLI/TUI) chat application written in C with no external
+dependencies: a threaded TCP server and a raw-ANSI/`termios` client driven by
+a single `select()` loop. This document covers the architecture and the wire
+protocol in detail.
 
-This document describes the architecture, the wire protocol, and the TUI
-design. It mirrors the original ConnectHub feature set so it can be used for
-the same Systems Programming coursework.
+For the short, plain-English walkthrough see `../documentation.md`. For usage
+and commands see `../README.md`.
 
-## 1. Architecture
+---
 
-```
-                ┌──────────────┐
-                │    Server     │  1 process, thread-per-client (pthreads),
-                │  (1 process,  │  mutex-protected shared lists
-                │  N threads)   │
-                └──┬───┬───┬────┘
-                   │   │   │  TCP sockets (port 8080)
-              ┌────┘   │   └────┐
-              ▼        ▼        ▼
-          Client 1  Client 2  Client 3     raw termios TUI + select() loop
-```
+## 1. How it works (architecture)
 
-### 1.1 Server (`bin/chatserver`)
+ConnectHub is a classic **client–server chat over TCP**:
 
-- `main()` loads `config/admin.cred`, seeds rooms/users, binds & listens on
-  port `8080`, then accepts connections.
-- Each accepted socket becomes a `Client` pushed onto a global linked list
-  (`client_mutex` protects it) and gets its own **detached** pthread running
-  `handle_client()`.
-- `handle_client()` reads newline-delimited lines, splits on `|`, and dispatches
-  commands. Replies/broadcasts are sent with `safe_send()` which marks a client
-  inactive on failure.
-- Shared data (`client_mutex`, `user_mutex`, `room_mutex`, `transfer_mutex`,
-  `upload_mutex`) prevents race conditions. Handlers never hold `client_mutex`
-  while calling a broadcast.
+- **One server, many clients.** The server listens on a TCP port (`8080` by
+  default). Clients connect, log in, then send and receive messages.
 
-### 1.2 Client (`bin/chatclient`)
+- **Pipe-delimited protocol.** All traffic is plain-text lines of the form
+  `TYPE|field1|field2|...`, ended with `\n`. The first field is the message
+  type; the rest are its arguments. Example:
 
-- Single-threaded and **driven by `select()`**: one loop watches `STDIN_FILENO`
-  (keyboard) and the socket. File-transfer chunks are pushed in the same loop,
-  so the UI stays responsive while uploading.
-- Terminal is put in **raw mode** (`termios`: `ICANON`/`ECHO` off, `VMIN=1`)
-  so each keystroke is readable immediately; it is restored on exit.
-- All drawing uses **ANSI escape codes** (cursor move, colors, `?25l/h` cursor
-  hiding, `7m` reverse-video bars) into a chat area, a right sidebar (online
-  users + rooms), a status bar, and an input line.
-- Command history is stored, navigable with `↑`/`↓`.
+  ```
+  PUBLIC|general|alice|hello everyone|02:30 PM
+  ```
+  Both sides build and parse these identical lines, so they interoperate.
 
-## 2. Wire protocol
+### 1.1 The server is multithreaded (`bin/chatserver`)
 
-All messages are plain-text, newline-terminated lines:
+- `main()` loads `config/admin.cred`, seeds the default users/rooms, binds and
+  listens on the port, then runs a `select()` accept loop.
+- Each accepted socket becomes a `Client` in a global linked list and is given
+  its **own detached pthread** that reads that client's lines and dispatches
+  them.
+- Because many threads touch the same data, mutexes protect the shared lists:
+  `client_mutex` (connected clients), `user_mutex` (accounts), `room_mutex`
+  (rooms), and transfer/upload mutexes (files). Handlers never hold
+  `client_mutex` while broadcasting, to avoid deadlocks.
+- A failing `send()` marks the client inactive so its thread can clean up
+  safely.
 
-```
-TYPE|field1|field2|...
-```
+### 1.2 The client uses a `select()` loop (`bin/chatclient`)
 
-The pipe `|` separates fields; fields must not contain `|` or newlines.
+- The client is **single-threaded**. One `select()` loop watches **both**
+  `stdin` (keyboard) and the server socket, so it reads keystrokes and network
+  data without blocking, and stays responsive while uploading a file.
+- The terminal is put in **raw mode** (`termios`: `ICANON`/`ECHO` off,
+  `VMIN=1`) so each keypress is readable immediately; it is restored on exit.
+- Drawing uses **ANSI escape codes** (cursor movement, colours, cursor
+  hide/show, reverse-video bars) into a chat area, a right-sidebar (users +
+  rooms), a status bar, and an input line.
 
-### 2.1 Client → Server
+## 2. Login flow
 
-| Message | Fields | Description |
-|---------|--------|-------------|
-| `LOGIN` | `username\|password` | Authenticate (required lookup). |
-| `PUBLIC` | `text` | Send to the sender's current room. |
-| `PRIVATE` | `recipient\|text` | Private message (both parties get it). |
-| `TYPING` | `room` | Typing indicator. |
-| `JOIN` | `room[|password]` | Join a room. |
-| `LEAVE` | `room` | Return to `general`. |
-| `CREATE` | `room` | Create a simple room. |
-| `CREATE_ROOM` | `name\|title\|desc\|password` | Create a detailed/protected room. |
-| `DELETE_ROOM` | `name` | Delete a room (creator or admin). |
-| `UPDATE_ROOM` | `name\|field\|value` | Update title/description/password. |
-| `LIST_USERS` / `LIST_ROOMS` | — | Request lists. |
-| `STATS` | — | Admin: server statistics. |
-| `ANNOUNCE` | `text` | Admin: broadcast announcement. |
-| `KICK` | `username\|reason` | Admin: kick a user. |
-| `CREATE_USER` | `u\|p` | Admin: create account. |
-| `DELETE_USER` | `u` | Admin: delete account. |
-| `RESET_PASS` | `u\|p` | Admin: reset password. |
-| `LIST_ACCOUNTS` | — | Admin: list accounts. |
-| `FILE_REQUEST` | `filename\|size\|target` | Request to send (target empty = room). |
-| `FILE_DATA` | `filename\|token\|base64` | One chunk of file data. |
-| `FILE_END` | `filename` | End of file transfer. |
-| `FILE_ACCEPT` | `sender\|filename` | Accept an incoming offer. |
-| `FILE_REJECT` | `sender\|filename\|reason` | Decline an incoming offer. |
-| `LOGOUT` | — | Clean disconnect. |
+1. Client connects and sends `LOGIN|username|password`.
+2. Server hashes the password with SHA-256 (`shared/sha256.c`) and compares it
+   to the stored hash.
+3. Match → `LOGIN_OK|username`; the user is added to the online list and a
+   `USERS` update is broadcast. No match → `LOGIN_FAIL|reason`.
+4. Passwords are stored hashed (never plaintext after the first admin action).
 
-### 2.2 Server → Client
+## 3. Chat flow
 
-| Message | Fields | Description |
-|---------|--------|-------------|
-| `LOGIN_OK` | `username` | Accepted. |
-| `LOGIN_FAIL` | `reason` | Rejected. |
-| `PUBLIC` | `room\|sender\|text\|timestamp` | Public chat message. |
-| `PRIVATE` | `sender\|recipient\|text\|timestamp` | Private message. |
-| `NOTIFY` | `text` | System/user notification. |
-| `ANNOUNCE` | `sender\|text\|timestamp` | Admin announcement. |
-| `TYPING` | `room\|username` | Typing indicator. |
-| `USERS` | `a:1,b:1` | Comma-separated online users. |
-| `ROOMS` | `r1,r2` | Comma-separated rooms. |
-| `JOIN_OK` / `JOIN_FAIL` | `room` / `reason` | Join result. |
-| `ROOM_CREATED` | `name` | Room created. |
-| `STATUS` | `text` | Stats/admin info. |
-| `ACCOUNT_LIST` | `list` | Account usernames. |
-| `KICK` | `reason` | This client was kicked. |
-| `FILE_GRANTED` | `sender\|filename\|token\|size` | Upload slot granted. |
-| `FILE_DENIED` | `filename\|sender\|reason` | Upload rejected. |
-| `FILE_OFFER` | `sender\|filename\|size\|target` | Incoming offer. |
-| `FILE_ACCEPT` | `recipient\|filename` | Recipient accepted. |
-| `FILE_REJECT` | `recipient\|filename\|reason` | Recipient declined. |
-| `FILE_DATA` | `sender\|filename\|base64` | Incoming chunk. |
-| `FILE_END` | `sender\|filename` | Transfer complete. |
-| `ERROR` | `reason` | Generic error. |
+- **Public:** client sends `PUBLIC|text` (its current room is implied). The
+  server forwards `PUBLIC|room|sender|text|timestamp` to everyone in the room
+  except the sender.
+- **Private:** `/msg bob hi` sends `PRIVATE|...`; the server delivers it only
+  to you and the recipient.
+- **Typing:** `/typing` broadcasts `TYPING|room|username`.
 
-### 2.3 Notes
+## 4. Rooms
 
-- Timestamps are `%I:%M %p` (e.g. `02:30 PM`).
-- Public messages are delivered to everyone in the sender's room except the
-  sender.
-- `FILE_DATA` is base64-encoded; raw bytes are chunked at `FILE_CHUNK_SIZE`
-  (2 KB) before encoding so each line stays under `BUFFER_SIZE`.
-- Room history is kept per room (50 lines) and replayed when a user joins.
+- `#general` is the default start room.
+- `/create <name>` or `/createroom <name> [title|desc|pw]` adds a room
+  (optionally protected).
+- `/join <room> [pw]` moves you in; `/leave` returns to `#general`.
+- `CREATE_ROOM` → `ROOM_CREATED|name`; `JOIN` → `JOIN_OK|room` or
+  `JOIN_FAIL|reason`.
+- `/who [room]`, `/history` show members and the last ~50 lines.
+- `/deleteroom <name>` removes a room (creator or admin only).
+- Join/leave/disconnect emit `NOTIFY` presence lines.
 
-## 3. File transfer flow
+## 5. File transfer flow
 
 Sender → Server → Recipient:
 
 1. Sender: `FILE_REQUEST|name|size|target`.
-2. Server allocates an upload slot + token and replies `FILE_GRANTED`, and
-   forwards `FILE_OFFER` to the recipient.
-3. Recipient chooses `/accept` or `/reject`.
-   - Accept → server forwards `FILE_ACCEPT` to sender; sender starts streaming
-     `FILE_DATA|name|token|<b64>` chunks, then `FILE_END|name`.
-   - Reject → server forwards `FILE_REJECT` and frees the slot.
-4. Recipient appends decoded chunks to `files/<name>.tmp` and renames it on
-   `FILE_END` (appending ` (n)` if the name exists).
+2. Server mints a **token**, replies `FILE_GRANTED` to the sender, and sends
+   `FILE_OFFER` to the recipient.
+3. Recipient: `/accept <n>` → `FILE_ACCEPT`; `/reject <n>` → `FILE_REJECT`.
+4. On accept, the sender streams `FILE_DATA|name|token|<base64 chunk>`
+   (~2 KB per chunk, under `BUFFER_SIZE` after encoding), then `FILE_END|name`.
+   The token in every chunk prevents a random client injecting file data.
+5. Receiver decodes each chunk into `files/<name>.tmp` and renames it on
+   `FILE_END` (adding ` (n)` if the name already exists).
 
-## 4. Logging
+## 6. Wire protocol reference
 
-The server writes to `logs/server.log`:
+**Client → Server:**
 
-```
-[2026-08-01 10:40:00] [INFO] Server started on port 8080
-[2026-08-01 10:40:05] [INFO] User 'alice' logged in from 127.0.0.1
-[2026-08-01 10:40:09] [MSG] [general] alice: hello
-```
+| Message | Fields | Description |
+|---------|--------|-------------|
+| `LOGIN` | `username\|password` | Authenticate |
+| `PUBLIC` | `text` | Send to your current room |
+| `PRIVATE` | `recipient\|text` | Private message |
+| `TYPING` | — | Typing indicator |
+| `JOIN` | `room[\|password]` | Join a room |
+| `LEAVE` | — | Return to `general` |
+| `CREATE_ROOM` | `name\|title\|desc\|password` | Create a room |
+| `DELETE_ROOM` | `name` | Delete a room |
+| `LIST_USERS` / `LIST_ROOMS` | — | Request lists |
+| `WHO` / `HISTORY` | `room` | Room members / recent messages |
+| `STATS` | — | Admin: server statistics |
+| `ANNOUNCE` | `text` | Admin: announcement |
+| `KICK` | `username\|reason` | Admin: kick a user |
+| `CREATE_USER` / `DELETE_USER` / `RESET_PASS` | `u[\|p]` | Admin: accounts |
+| `FILE_REQUEST` | `filename\|size\|target` | Offer a file (target empty = room) |
+| `FILE_DATA` | `filename\|token\|base64` | One file chunk |
+| `FILE_END` | `filename` | End of transfer |
+| `FILE_ACCEPT` / `FILE_REJECT` | `sender\|filename[\|reason]` | Accept / decline |
+| `LOGOUT` | — | Clean disconnect |
 
-Levels: `INFO`, `MSG`, `PRIV`, `CTRL`, `FILE`.
+**Server → Client:**
 
-## 5. Security / limitations
+| Message | Fields | Description |
+|---------|--------|-------------|
+| `LOGIN_OK` | `username` | Login accepted |
+| `LOGIN_FAIL` | `reason` | Login rejected |
+| `PUBLIC` | `room\|sender\|text\|timestamp` | Public message |
+| `PRIVATE` | `sender\|recipient\|text\|timestamp` | Private message |
+| `NOTIFY` / `ANNOUNCE` | `text[\|timestamp]` | Notice / announcement |
+| `TYPING` | `room\|username` | Typing indicator |
+| `USERS` / `ROOMS` | `list` | Online users / rooms |
+| `JOIN_OK` / `JOIN_FAIL` | `room` / `reason` | Join result |
+| `ROOM_CREATED` | `name` | Room created |
+| `STATUS` | `text` | Stats / status |
+| `KICK` | `reason` | You were kicked |
+| `ERROR` | `reason` | Generic error |
+| `FILE_GRANTED` | `sender\|filename\|token\|size` | Upload slot granted |
+| `FILE_OFFER` | `sender\|filename\|size\|target` | Incoming offer |
+| `FILE_ACCEPT` / `FILE_REJECT` | `recipient\|filename[\|reason]` | Result |
+| `FILE_DATA` | `sender\|filename\|base64` | Incoming chunk |
+| `FILE_END` | `sender\|filename` | Transfer complete |
 
-- No encryption; plain-text on the wire (academic project).
-- Admin is whoever logs in as the `/admin` credential (default `admin`).
-- Passwords are stored in plain text in `config/*.cred`.
-- Filenames are sanitized against path separators; fields cannot contain `|`.
-- No persistence across server restarts for rooms/history/accounts created at
-  runtime (only `config/*.cred` seeds on start).
-- Intended for a trusted LAN demo, not production.
+## 7. Notes & limitations
 
+- Timestamps are `%I:%M %p` (e.g. `02:30 PM`).
+- No encryption — plain text on the wire (academic project for a trusted LAN).
+- Filename sanitisation and upload tokens provide basic safety; fields cannot
+  contain `|`.
+- No persistence for rooms/users/history created at runtime (only
+  `config/*.cred` seeds on start).

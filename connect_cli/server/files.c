@@ -1,35 +1,41 @@
 /* files.c - everything about file transfer on the server side.
  *
- * Three pieces of state, each guarded by its own mutex:
- *   - upload_slots[]   : at most MAX_CONCURRENT_UPLOADS in-flight uploads,
- *                        each with a random token the sender must present
- *                        (upload_mutex);
- *   - upload queue     : FIFO of FILE_REQUESTs that could not start yet
- *                        because slots or the byte budget were full
- *                        (upload_mutex);
- *   - transfer_list    : active offers, used to route FILE_DATA/FILE_END
- *                        to the right recipient (transfer_mutex).
+ * There are three pieces of state, each guarded by its own mutex:
  *
- * The FILE_* protocol handlers all live here too, so the chat handlers
- * (handlers.c) never need to know any of this.
+ *   1. upload_slots[]  (upload_mutex) - at most MAX_CONCURRENT_UPLOADS
+ *      transfers running at once. Each has a random TOKEN the sender must
+ *      present so only the real sender can push data.
+ *   2. the FIFO upload queue (upload_mutex) - FILE_REQUESTs that could not
+ *      start because all slots / the byte budget were full. They wait here
+ *      in order and are started later by files_process_queue().
+ *   3. transfer_list (transfer_mutex) - the active offers, used to route
+ *      incoming data (FILE_DATA / FILE_END) to the right recipient.
+ *
+ * All the FILE_* protocol handlers live here too, so handlers.c never has
+ * to know anything about how transfers work.
  */
 #include "server.h"
 
-/* ── in-flight upload slots ── */
+/* In-flight upload slots and their mutex. */
 static UploadSlot upload_slots[MAX_CONCURRENT_UPLOADS];
 static pthread_mutex_t upload_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-/* ── FIFO upload queue ── */
+/* FIFO upload queue (head = oldest, tail = newest) and its size. */
 static UploadQueueEntry *upload_queue_head = NULL;
 static UploadQueueEntry *upload_queue_tail = NULL;
 static int upload_queue_count = 0;
 
-/* ── active file transfer offers ── */
+/* Active file transfer offers and their mutex. */
 static FileTransfer *transfer_list = NULL;
 static pthread_mutex_t transfer_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-/* ---- transfer bookkeeping ---- */
+/* ================================================================ */
+/* Transfer offer bookkeeping                                        */
+/* ================================================================ */
 
+/* Add one offer to transfer_list so later FILE_DATA/FILE_END for this
+ * sender+filename can be routed. If recipient is NULL/empty the file was
+ * offered to the whole room (broadcast). */
 static void transfer_add(const char *sender, const char *filename, long size, const char *recipient) {
     pthread_mutex_lock(&transfer_mutex);
     FileTransfer *t = calloc(1, sizeof(FileTransfer));
@@ -44,6 +50,7 @@ static void transfer_add(const char *sender, const char *filename, long size, co
     pthread_mutex_unlock(&transfer_mutex);
 }
 
+/* Remove the offer matching this sender+filename (a transfer ended). */
 static void transfer_remove(const char *sender, const char *filename) {
     pthread_mutex_lock(&transfer_mutex);
     FileTransfer **pp = &transfer_list;
@@ -59,7 +66,9 @@ static void transfer_remove(const char *sender, const char *filename) {
     pthread_mutex_unlock(&transfer_mutex);
 }
 
-/* Caller must hold transfer_mutex; returns true and fills a snapshot. */
+/* Copy the matching offer into `out` (a snapshot, so the caller can use
+ * it safely after unlocking). Returns true on match.
+ * NOTE: caller must already hold transfer_mutex. */
 static bool transfer_find(const char *sender, const char *filename, FileTransfer *out) {
     for (FileTransfer *t = transfer_list; t; t = t->next) {
         if (strcmp(t->sender, sender) == 0 && strcmp(t->filename, filename) == 0) {
@@ -86,9 +95,11 @@ void files_remove_transfers(const char *sender) {
     pthread_mutex_unlock(&transfer_mutex);
 }
 
-/* ---- upload slot / queue helpers (all share upload_mutex) ---- */
+/* ================================================================ */
+/* Upload slot / queue helpers (all share upload_mutex)             */
+/* ================================================================ */
 
-/* Sum of sizes of currently-granted (in-flight) uploads. */
+/* How many bytes are currently being uploaded (sum of active slot sizes). */
 static long upload_active_bytes(void) {
     long total = 0;
     for (int i = 0; i < MAX_CONCURRENT_UPLOADS; i++)
@@ -96,7 +107,8 @@ static long upload_active_bytes(void) {
     return total;
 }
 
-/* Can a new transfer of `size` bytes start right now? */
+/* Can a new transfer of `size` bytes start right now? True only if there
+ * is a free slot AND the total byte budget still has room. */
 static bool upload_can_accept(long size) {
     for (int i = 0; i < MAX_CONCURRENT_UPLOADS; i++)
         if (!upload_slots[i].active)
@@ -104,7 +116,8 @@ static bool upload_can_accept(long size) {
     return false;
 }
 
-/* Generate a fresh random token for an upload slot. */
+/* Generate a fresh random token for an upload slot. It just needs to be
+ * unpredictable enough that another client can't guess it. */
 static void make_token(char *token, size_t len, Client *c) {
     unsigned h = (unsigned)(time(NULL) ^ (uintptr_t)c ^ (unsigned)rand());
     for (size_t i = 0; i + 1 < len; i++) {
@@ -115,7 +128,9 @@ static void make_token(char *token, size_t len, Client *c) {
     token[len - 1] = '\0';
 }
 
-/* Add the request to the FIFO queue and reply FILE_WAIT with its position. */
+/* Put a request on the FIFO queue and tell the sender FILE_WAIT with its
+ * queue position. If the queue is already full we refuse instead.
+ * NOTE: caller must already hold upload_mutex. */
 static void upload_enqueue(Client *c, const char *sender, const char *filename,
                            const char *recipient, long size) {
     if (upload_queue_count >= MAX_QUEUE_DEPTH) {
@@ -140,10 +155,10 @@ static void upload_enqueue(Client *c, const char *sender, const char *filename,
     e->client = c;
     e->queued_at = time(NULL);
 
-    int pos = upload_queue_count + 1;
+    int pos = upload_queue_count + 1;    /* 1-based position for the user */
     if (upload_queue_tail) upload_queue_tail->next = e;
     else                   upload_queue_head = e;
-    upload_queue_tail = e;
+    upload_queue_tail = e;               /* append at the tail */
     upload_queue_count++;
 
     char wait[256];
@@ -153,13 +168,34 @@ static void upload_enqueue(Client *c, const char *sender, const char *filename,
                 sender, filename, size, pos, upload_active_bytes(), (long)MAX_TOTAL_UPLOAD_BYTES);
 }
 
-/* Grant one queued entry: fill a slot, notify the owner, forward the offer. */
+/* Reply FILE_GRANTED to the sender, saying their upload may begin now. */
+static void send_granted(int sockfd, const char *sender, const char *filename,
+                         const char *token, long size) {
+    char grant[512];
+    snprintf(grant, sizeof(grant), "FILE_GRANTED|%s|%s|%s|%ld\n",
+             sender, filename, token, size);
+    send(sockfd, grant, strlen(grant), 0);
+}
+
+/* Tell the recipient (or the room, for a broadcast offer) about a file. */
+static void forward_offer(const char *sender, const char *filename, long size,
+                          const char *recipient, Client *except) {
+    char fwd[512];
+    snprintf(fwd, sizeof(fwd), "FILE_OFFER|%s|%s|%ld|%s\n",
+             sender, filename, size, recipient);
+    if (recipient[0]) net_send_to_user(recipient, fwd);
+    else net_broadcast(fwd, except);
+}
+
+/* Start one queued upload now that room is available: give it a slot,
+ * grant it a token, tell the owner, and forward the offer. */
 static void upload_grant_one(UploadQueueEntry *e) {
     if (!e || !e->client || !e->client->active) return;
 
     char token[TOKEN_LEN + 1];
     make_token(token, sizeof(token), e->client);
 
+    /* Find and fill a free slot. */
     pthread_mutex_lock(&upload_mutex);
     int slot = -1;
     for (int i = 0; i < MAX_CONCURRENT_UPLOADS; i++) {
@@ -179,24 +215,15 @@ static void upload_grant_one(UploadQueueEntry *e) {
 
     total_files++;
     transfer_add(e->sender, e->filename, e->size, e->recipient);
-
-    char grant[512];
-    snprintf(grant, sizeof(grant), "FILE_GRANTED|%s|%s|%s|%ld\n",
-             e->sender, e->filename, token, e->size);
-    send(e->client->sockfd, grant, strlen(grant), 0);
-
-    char fwd[512];
-    snprintf(fwd, sizeof(fwd), "FILE_OFFER|%s|%s|%ld|%s\n",
-             e->sender, e->filename, e->size, e->recipient);
-    if (e->recipient[0]) net_send_to_user(e->recipient, fwd);
-    else net_broadcast(fwd, e->client);
-
+    send_granted(e->client->sockfd, e->sender, e->filename, token, e->size);
+    forward_offer(e->sender, e->filename, e->size, e->recipient, e->client);
     log_message("FILE", "%s GRANTED from queue token %s for '%s' (%ld bytes) slot=%d",
                 e->sender, token, e->filename, e->size, slot);
 }
 
 /* Start as many queued transfers as the active limits allow. */
 void files_process_queue(void) {
+    /* Pop every ready entry off the queue into a temporary list. */
     UploadQueueEntry *head = NULL;
     pthread_mutex_lock(&upload_mutex);
     while (upload_queue_head) {
@@ -209,6 +236,7 @@ void files_process_queue(void) {
         head = e;
     }
     pthread_mutex_unlock(&upload_mutex);
+    /* Then grant each one (done outside the lock to avoid long holds). */
     while (head) {
         UploadQueueEntry *e = head;
         head = e->next;
@@ -217,7 +245,7 @@ void files_process_queue(void) {
     }
 }
 
-/* Drop queue entries whose wait timed out (reply FILE_DENIED to the owner). */
+/* Drop queue entries whose wait timed out (reply FILE_DENIED to owner). */
 static void upload_expire_queue(void) {
     time_t now = time(NULL);
     pthread_mutex_lock(&upload_mutex);
@@ -239,6 +267,7 @@ static void upload_expire_queue(void) {
             pp = &((*pp)->next);
         }
     }
+    /* Repair the tail pointer after removals. */
     if (!upload_queue_head) upload_queue_tail = NULL;
     else {
         UploadQueueEntry *t = upload_queue_head;
@@ -248,14 +277,16 @@ static void upload_expire_queue(void) {
     pthread_mutex_unlock(&upload_mutex);
 }
 
-/* Deactivate stale slots and timed-out queue entries, then promote the queue. */
+/* Free stale upload slots and timed-out queue entries, then start any
+ * newly-possible queued transfers. Called once per second by the accept
+ * loop's housekeeping tick. */
 void files_expire_stale(void) {
     time_t now = time(NULL);
     pthread_mutex_lock(&upload_mutex);
     for (int i = 0; i < MAX_CONCURRENT_UPLOADS; i++) {
         if (upload_slots[i].active &&
             (now - upload_slots[i].started_at) > UPLOAD_TIMEOUT_SEC) {
-            upload_slots[i].active = false;
+            upload_slots[i].active = false;   /* it never finished in time */
         }
     }
     pthread_mutex_unlock(&upload_mutex);
@@ -296,7 +327,8 @@ void files_remove_slots(const char *sender) {
     pthread_mutex_unlock(&upload_mutex);
 }
 
-/* Free the slot + offer for a finished/rejected transfer and promote queue. */
+/* Free the slot + offer for a finished / rejected transfer, then let
+ * waiting uploads move forward. */
 void files_release(const char *sender, const char *filename) {
     transfer_remove(sender, filename);
     pthread_mutex_lock(&upload_mutex);
@@ -312,11 +344,12 @@ void files_release(const char *sender, const char *filename) {
     files_process_queue();
 }
 
-/* ---- FILE_* protocol handlers ---- */
+/* ================================================================ */
+/* FILE_* protocol handlers                                         */
+/* ================================================================ */
 
 /* FILE_REQUEST|filename|size|target   (target empty = broadcast to room).
- * If the limits allow, grant a slot now; otherwise enqueue the request and
- * reply FILE_WAIT with its queue position. */
+ * If the limits allow, grant a slot now; else enqueue and reply FILE_WAIT. */
 void files_handler_request(Client *c, Cmd *m) {
     long fsize = atol(m->a2);
     char target[MAX_USERNAME] = {0};
@@ -324,6 +357,7 @@ void files_handler_request(Client *c, Cmd *m) {
     char safe_name[MAX_FILENAME];
     net_sanitize_filename(safe_name, sizeof(safe_name), m->a1);
 
+    /* Reject obviously-bad sizes before spending any resources. */
     if (fsize <= 0 || fsize > MAX_FILE_SIZE) {
         char err[256];
         snprintf(err, sizeof(err), "FILE_DENIED|%s|%s|File too large or invalid size\n", safe_name, c->username);
@@ -331,6 +365,7 @@ void files_handler_request(Client *c, Cmd *m) {
         return;
     }
 
+    /* Try to start now; if the limits are full, queue it instead. */
     pthread_mutex_lock(&upload_mutex);
     if (!upload_can_accept(fsize)) {
         upload_enqueue(c, c->username, safe_name, target, fsize);
@@ -347,9 +382,9 @@ void files_handler_request(Client *c, Cmd *m) {
         return;
     }
 
+    /* Fill the free slot with this transfer and its token. */
     char token[TOKEN_LEN + 1];
     make_token(token, sizeof(token), c);
-
     upload_slots[slot].active = true;
     strncpy(upload_slots[slot].token, token, TOKEN_LEN);
     strncpy(upload_slots[slot].sender, c->username, MAX_USERNAME - 1);
@@ -361,23 +396,13 @@ void files_handler_request(Client *c, Cmd *m) {
 
     total_files++;
     transfer_add(c->username, safe_name, fsize, target);
-
-    char grant[512];
-    snprintf(grant, sizeof(grant), "FILE_GRANTED|%s|%s|%s|%ld\n",
-             c->username, safe_name, token, fsize);
-    send(c->sockfd, grant, strlen(grant), 0);
-
-    char fwd[512];
-    snprintf(fwd, sizeof(fwd), "FILE_OFFER|%s|%s|%ld|%s\n",
-             c->username, safe_name, fsize, target);
-    if (target[0]) net_send_to_user(target, fwd);
-    else net_broadcast(fwd, c);
-
+    send_granted(c->sockfd, c->username, safe_name, token, fsize);
+    forward_offer(c->username, safe_name, fsize, target, c);
     log_message("FILE", "%s GRANTED token %s for '%s' (%ld bytes) slot=%d",
                 c->username, token, safe_name, fsize, slot);
 }
 
-/* FILE_OFFER|filename|size|recipient - legacy/peer-visible offer. */
+/* FILE_OFFER|filename|size|recipient - legacy peer-visible offer. */
 void files_handler_offer(Client *c, Cmd *m) {
     total_files++;
     char safe_name[MAX_FILENAME];
@@ -390,30 +415,51 @@ void files_handler_offer(Client *c, Cmd *m) {
     log_message("FILE", "%s offered file '%s' (%s bytes) to %s", c->username, safe_name, m->a2, m->a3[0] ? m->a3 : "all");
 }
 
-/* FILE_DATA|filename|token|base64 - forward a chunk to the recipient.
- * Parsed from the raw line (base64 may be larger than a normal arg). */
+/* Check that this sender really owns a slot for `filename` with `token`.
+ * On success we also bump started_at so the slot doesn't expire mid-file. */
+static bool validate_upload_token(const char *sender, const char *filename, const char *token) {
+    pthread_mutex_lock(&upload_mutex);
+    for (int i = 0; i < MAX_CONCURRENT_UPLOADS; i++) {
+        if (upload_slots[i].active &&
+            strcmp(upload_slots[i].sender, sender) == 0 &&
+            strcmp(upload_slots[i].filename, filename) == 0 &&
+            strcmp(upload_slots[i].token, token) == 0) {
+            upload_slots[i].started_at = time(NULL);
+            pthread_mutex_unlock(&upload_mutex);
+            return true;
+        }
+    }
+    pthread_mutex_unlock(&upload_mutex);
+    return false;
+}
+
+/* FILE_DATA|filename|token|base64 - forward one chunk to the recipient.
+ * The line is parsed from `raw` because the base64 payload can be larger
+ * than a normal Cmd field. We trust only chunks whose token validates. */
 void files_handler_data(Client *c, Cmd *m) {
     const char *line = m->raw;
     if (!line) return;
-    const char *p1 = strchr(line, '|');
+    const char *p1 = strchr(line, '|');   /* end of "FILE_DATA" */
     if (!p1) return;
-    const char *p2 = strchr(p1 + 1, '|');
+    const char *p2 = strchr(p1 + 1, '|'); /* end of the filename */
     if (!p2) return;
 
+    /* Pull out the filename between the first two '|'s. */
     char fname[MAX_FILENAME];
     size_t fn_len = (size_t)(p2 - p1 - 1);
     if (fn_len >= MAX_FILENAME) fn_len = MAX_FILENAME - 1;
     memcpy(fname, p1 + 1, fn_len);
     fname[fn_len] = '\0';
 
+    /* Look up the offer so we know where to forward this chunk. */
     FileTransfer tf;
     bool found = false;
     pthread_mutex_lock(&transfer_mutex);
     found = transfer_find(c->username, fname, &tf);
     pthread_mutex_unlock(&transfer_mutex);
-    if (!found) return;
+    if (!found) return;   /* no active offer: drop silently */
 
-    /* Validate the upload token embedded after the filename. */
+    /* The rest of the line is: <token>|<base64>. Validate the token. */
     const char *b64 = p2 + 1;
     char token_match[TOKEN_LEN + 1] = {0};
     const char *base64_data = b64;
@@ -424,24 +470,14 @@ void files_handler_data(Client *c, Cmd *m) {
         if (tok_len > TOKEN_LEN) tok_len = TOKEN_LEN;
         strncpy(token_match, b64, tok_len);
         token_match[tok_len] = '\0';
-        base64_data = token_delim + 1;
-        pthread_mutex_lock(&upload_mutex);
-        for (int i = 0; i < MAX_CONCURRENT_UPLOADS; i++) {
-            if (upload_slots[i].active &&
-                strcmp(upload_slots[i].sender, c->username) == 0 &&
-                strcmp(upload_slots[i].filename, fname) == 0 &&
-                strcmp(upload_slots[i].token, token_match) == 0) {
-                valid_token = true;
-                upload_slots[i].started_at = time(NULL);
-                break;
-            }
-        }
-        pthread_mutex_unlock(&upload_mutex);
+        base64_data = token_delim + 1;   /* everything after the token */
+        valid_token = validate_upload_token(c->username, fname, token_match);
     } else {
-        valid_token = true; /* backward-compatible */
+        valid_token = true;   /* backward-compatible: no token present */
     }
     if (!valid_token) return;
 
+    /* Forward the chunk to the recipient (or broadcast to the room). */
     char fwd[BUFFER_SIZE + 64];
     snprintf(fwd, sizeof(fwd), "FILE_DATA|%s|%s|%s\n", c->username, fname, base64_data);
     if (tf.recipient[0]) net_send_to_user(tf.recipient, fwd);
@@ -465,15 +501,15 @@ void files_handler_end(Client *c, Cmd *m) {
     log_message("FILE", "File '%s' from %s completed", m->a1, c->username);
 }
 
-/* FILE_ACCEPT|sender|filename - accept an offer back to its owner. */
+/* FILE_ACCEPT|sender|filename - accept an offer, notify back to its owner. */
 void files_handler_accept(Client *c, Cmd *m) {
     FileTransfer tf;
     bool found = false;
     pthread_mutex_lock(&transfer_mutex);
     found = transfer_find(m->a1, m->a2, &tf);
     pthread_mutex_unlock(&transfer_mutex);
-    /* Accepting works for a targeted recipient OR any user when
-       the file was offered to the room (broadcast). */
+    /* Accepting works for the targeted recipient OR any user when the file
+       was offered to the whole room (broadcast). */
     if (found && (tf.recipient[0] == 0 || strcmp(tf.recipient, c->username) == 0)) {
         char msg[512];
         snprintf(msg, sizeof(msg), "FILE_ACCEPT|%s|%s\n", c->username, m->a2);

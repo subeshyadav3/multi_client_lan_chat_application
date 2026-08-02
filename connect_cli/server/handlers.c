@@ -1,70 +1,99 @@
 /* handlers.c - one small function per chat command.
  *
  * dispatch_command() is the only entry point: it looks at the parsed
- * command name and calls the matching tiny handler. FILE_* commands are
- * forwarded to files.c; everything else is handled here.
+ * command name and calls the matching tiny handler. Each handler is
+ * responsible for ONE thing (send a public message, join a room, kick a
+ * user, ...) and builds exactly the protocol line the client expects.
+ * The FILE_* commands are forwarded to files.c; everything else is
+ * handled right here.
  */
 #include "server.h"
 
-/* Raw, behavior-preserving socket write (no active-flag side effects). */
+/* Write `msg` straight to this client's socket without any extra checks.
+ * Used for simple direct replies/errors to the command's own sender. */
 static void send_raw(Client *c, const char *msg) {
     send(c->sockfd, msg, strlen(msg), 0);
+}
+
+/* ---- HELPERS USED BY LOGIN ---- */
+
+/* Refuse a login attempt with LOGIN_FAIL|<reason>. */
+static void login_refuse(Client *c, const char *reason) {
+    char msg[256];
+    snprintf(msg, sizeof(msg), "LOGIN_FAIL|%s\n", reason);
+    send_raw(c, msg);
+}
+
+/* Try to reserve `username` for client `c`. We re-check under the lock
+ * that the name is still free (in case two logins race). Returns true if
+ * the name was claimed, in which case c->username is set. */
+static bool login_claim_name(Client *c, const char *username) {
+    bool ok = false;
+    pthread_mutex_lock(&client_mutex);
+    if (net_client_find(username) == NULL) {
+        strncpy(c->username, username, MAX_USERNAME - 1);
+        c->username[MAX_USERNAME - 1] = '\0';
+        ok = true;
+    }
+    pthread_mutex_unlock(&client_mutex);
+    return ok;
+}
+
+/* Complete a successful login: mark the client active, drop it into the
+ * default "general" room, send LOGIN_OK back, replay that room's recent
+ * history, and refresh the user/room lists for everyone online. */
+static void login_finish(Client *c, const char *username) {
+    c->active = true;
+    strncpy(c->current_room, "general", MAX_ROOM_NAME - 1);
+    char ok[128];
+    snprintf(ok, sizeof(ok), "LOGIN_OK|%s\n", username);
+    send_raw(c, ok);
+    history_replay(c->sockfd, "general");
+    net_broadcast_user_list();
+    net_broadcast_room_list();
+    log_message("INFO", "User '%s' logged in from %s", username, inet_ntoa(c->addr.sin_addr));
 }
 
 /* ---- LOGIN ---- */
 
 static void h_login(Client *c, Cmd *m) {
-    bool accepted = false;
-    bool is_admin_user = (strcmp(m->a1, admin_user) == 0);
+    /* Not allowed if this name is already logged in from another socket. */
     pthread_mutex_lock(&client_mutex);
     bool duplicate = (net_client_find(m->a1) != NULL);
     pthread_mutex_unlock(&client_mutex);
-
     if (duplicate) {
-        send_raw(c, "LOGIN_FAIL|User already logged in\n");
-    } else if (is_admin_user) {
+        login_refuse(c, "User already logged in");
+        return;
+    }
+
+    bool is_admin_user = (strcmp(m->a1, admin_user) == 0);
+    bool accepted = false;
+
+    if (is_admin_user) {
+        /* Admin uses its own stored password hash (config/admin.cred). */
         char ah[65];
         sha256_hex(m->a2, ah);
         if (strcmp(ah, admin_pass_hash) == 0) {
-            pthread_mutex_lock(&client_mutex);
-            if (net_client_find(m->a1) == NULL) {
-                strncpy(c->username, m->a1, MAX_USERNAME - 1);
-                c->username[MAX_USERNAME - 1] = '\0';
+            if (login_claim_name(c, m->a1)) {
                 c->is_admin = true;
                 accepted = true;
             }
-            pthread_mutex_unlock(&client_mutex);
         } else {
-            send_raw(c, "LOGIN_FAIL|Invalid admin password\n");
+            login_refuse(c, "Invalid admin password");
         }
     } else {
+        /* A normal user is checked against the account list. */
         pthread_mutex_lock(&user_mutex);
         bool valid = user_validate(m->a1, m->a2);
         pthread_mutex_unlock(&user_mutex);
         if (valid) {
-            pthread_mutex_lock(&client_mutex);
-            if (net_client_find(m->a1) == NULL) {
-                strncpy(c->username, m->a1, MAX_USERNAME - 1);
-                c->username[MAX_USERNAME - 1] = '\0';
-                accepted = true;
-            }
-            pthread_mutex_unlock(&client_mutex);
+            accepted = login_claim_name(c, m->a1);
         } else {
-            send_raw(c, "LOGIN_FAIL|Invalid username or password\n");
+            login_refuse(c, "Invalid username or password");
         }
     }
 
-    if (accepted) {
-        c->active = true;
-        strncpy(c->current_room, "general", MAX_ROOM_NAME - 1);
-        char ok[128];
-        snprintf(ok, sizeof(ok), "LOGIN_OK|%s\n", m->a1);
-        send_raw(c, ok);
-        history_replay(c->sockfd, "general");
-        net_broadcast_user_list();
-        net_broadcast_room_list();
-        log_message("INFO", "User '%s' logged in from %s", m->a1, inet_ntoa(c->addr.sin_addr));
-    }
+    if (accepted) login_finish(c, m->a1);
 }
 
 /* ---- messaging ---- */
@@ -74,7 +103,7 @@ static void h_public(Client *c, Cmd *m) {
     char ts[32];
     net_get_timestamp(ts, sizeof(ts));
     snprintf(msg, sizeof(msg), "PUBLIC|%s|%s|%s|%s\n", c->current_room, c->username, m->a2, ts);
-    history_add(c->current_room, msg);
+    history_add(c->current_room, msg);   /* remember for late joiners */
     net_broadcast_room(c->current_room, msg, NULL);
     total_messages++;
     log_message("MSG", "[%s] %s: %s", c->current_room, c->username, m->a2);
@@ -85,8 +114,8 @@ static void h_private(Client *c, Cmd *m) {
     char ts[32];
     net_get_timestamp(ts, sizeof(ts));
     snprintf(msg, sizeof(msg), "PRIVATE|%s|%s|%s|%s\n", c->username, m->a1, m->a2, ts);
-    net_send_to_user(m->a1, msg);
-    net_send_to_user(c->username, msg);
+    net_send_to_user(m->a1, msg);        /* to the recipient */
+    net_send_to_user(c->username, msg);  /* and a copy back to the sender */
     total_privmsgs++;
     log_message("PRIV", "%s -> %s: %s", c->username, m->a1, m->a2);
 }
@@ -103,11 +132,13 @@ static void h_typing(Client *c, Cmd *m) {
 static void h_join(Client *c, Cmd *m) {
     const char *room_name = m->a1;
     const char *password = (m->parts >= 3) ? m->a2 : "";
+
     if (!room_exists(room_name)) {
         char err[256];
         snprintf(err, sizeof(err), "JOIN_FAIL|Room '%s' does not exist\n", room_name);
         send_raw(c, err);
     } else if (room_is_protected(room_name) && !c->is_admin) {
+        /* Protected room: allowed if already granted, or with the password. */
         if (!room_has_access(c->username, room_name)) {
             if (!password[0] || !room_check_password(room_name, password)) {
                 char err[256];
@@ -126,16 +157,17 @@ static void h_join(Client *c, Cmd *m) {
 }
 
 static void h_leave(Client *c, Cmd *m) {
+    (void)m;
     char prev_room[MAX_ROOM_NAME];
     strncpy(prev_room, c->current_room, sizeof(prev_room) - 1);
-    strncpy(c->current_room, "general", MAX_ROOM_NAME - 1);
+    strncpy(c->current_room, "general", MAX_ROOM_NAME - 1);   /* back to general */
     c->current_room[MAX_ROOM_NAME - 1] = '\0';
     char msg[256];
     snprintf(msg, sizeof(msg), "NOTIFY|%s left room %s.\n", c->username, prev_room);
     net_broadcast_room(prev_room, msg, NULL);
-    (void)m;
 }
 
+/* Simple room create (legacy command CREATE). */
 static void h_create(Client *c, Cmd *m) {
     if (room_create(m->a1)) {
         char msg[256];
@@ -145,6 +177,7 @@ static void h_create(Client *c, Cmd *m) {
     }
 }
 
+/* Extended room create with optional title/description/password. */
 static void h_create_room(Client *c, Cmd *m) {
     const char *rn = m->a1;
     const char *rt = (m->parts >= 3) ? m->a2 : "";
@@ -170,6 +203,7 @@ static void h_delete_room(Client *c, Cmd *m) {
         char msg[256];
         snprintf(msg, sizeof(msg), "NOTIFY|Room '%s' deleted by %s.\n", m->a1, c->username);
         net_broadcast(msg, NULL);
+        /* Kick everyone still sitting in the deleted room back to general. */
         pthread_mutex_lock(&client_mutex);
         for (Client *p = client_list; p; p = p->next) {
             if (p->active && strcmp(p->current_room, m->a1) == 0) {
@@ -222,6 +256,7 @@ static void h_list_rooms(Client *c, Cmd *m) {
     send_raw(c, out);
 }
 
+/* WHO <room>: who is currently inside the given room? */
 static void h_who(Client *c, Cmd *m) {
     const char *room = m->a1;
     if (!room_exists(room)) {
@@ -248,7 +283,7 @@ static void h_who(Client *c, Cmd *m) {
 
 static void h_history(Client *c, Cmd *m) {
     (void)m;
-    /* Replay this client's current-room history (no cross-room leak). */
+    /* Replay this client's CURRENT room only - no cross-room leak. */
     history_replay(c->sockfd, c->current_room);
 }
 
@@ -269,7 +304,7 @@ static void h_announce(Client *c, Cmd *m) {
         char ts[32];
         net_get_timestamp(ts, sizeof(ts));
         snprintf(msg, sizeof(msg), "ANNOUNCE|%s|%s|%s\n", c->username, m->a1, ts);
-        net_broadcast(msg, NULL);
+        net_broadcast(msg, NULL);   /* to everyone */
         log_message("CTRL", "Announcement by admin: %s", m->a1);
     } else {
         send_raw(c, "ERROR|Only admin can announce\n");
@@ -299,103 +334,107 @@ static void h_kick(Client *c, Cmd *m) {
 }
 
 static void h_create_user(Client *c, Cmd *m) {
-    if (c->is_admin) {
-        pthread_mutex_lock(&user_mutex);
-        bool created = user_create(m->a1, m->a2);
-        if (created) users_save();
-        pthread_mutex_unlock(&user_mutex);
-        if (created) {
-            char ok[256];
-            snprintf(ok, sizeof(ok), "ANNOUNCE|User '%s' created.\n", m->a1);
-            send_raw(c, ok);
-            log_message("INFO", "Admin created user '%s'", m->a1);
-        } else {
-            char err[256];
-            snprintf(err, sizeof(err), "ERROR|Cannot create user '%s' (exists/invalid)\n", m->a1);
-            send_raw(c, err);
-        }
-    } else {
+    if (!c->is_admin) {
         send_raw(c, "ERROR|Only admin can create users\n");
+        return;
+    }
+    pthread_mutex_lock(&user_mutex);
+    bool created = user_create(m->a1, m->a2);
+    if (created) users_save();
+    pthread_mutex_unlock(&user_mutex);
+    if (created) {
+        char ok[256];
+        snprintf(ok, sizeof(ok), "ANNOUNCE|User '%s' created.\n", m->a1);
+        send_raw(c, ok);
+        log_message("INFO", "Admin created user '%s'", m->a1);
+    } else {
+        char err[256];
+        snprintf(err, sizeof(err), "ERROR|Cannot create user '%s' (exists/invalid)\n", m->a1);
+        send_raw(c, err);
     }
 }
 
 static void h_delete_user(Client *c, Cmd *m) {
-    if (c->is_admin) {
-        pthread_mutex_lock(&client_mutex);
-        Client *target = net_client_find(m->a1);
-        if (target && target->active) {
-            char msg[256];
-            snprintf(msg, sizeof(msg), "KICK|Your account has been deleted.\n");
-            send(target->sockfd, msg, strlen(msg), 0);
-            target->active = false;
-            shutdown(target->sockfd, SHUT_RDWR);
-        }
-        pthread_mutex_unlock(&client_mutex);
-        pthread_mutex_lock(&user_mutex);
-        bool removed = account_remove(m->a1);
-        if (removed) users_save();
-        pthread_mutex_unlock(&user_mutex);
-        if (removed) {
-            char ok[256];
-            snprintf(ok, sizeof(ok), "ANNOUNCE|User '%s' deleted.\n", m->a1);
-            net_broadcast(ok, NULL);
-            net_broadcast_user_list();
-            log_message("INFO", "Admin deleted user '%s'", m->a1);
-        } else {
-            char err[256];
-            snprintf(err, sizeof(err), "ERROR|Cannot delete user '%s' (not found)\n", m->a1);
-            send_raw(c, err);
-        }
-    } else {
+    if (!c->is_admin) {
         send_raw(c, "ERROR|Only admin can delete users\n");
+        return;
+    }
+    /* If the user being deleted is logged in, kick them out first. */
+    pthread_mutex_lock(&client_mutex);
+    Client *target = net_client_find(m->a1);
+    if (target && target->active) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "KICK|Your account has been deleted.\n");
+        send(target->sockfd, msg, strlen(msg), 0);
+        target->active = false;
+        shutdown(target->sockfd, SHUT_RDWR);
+    }
+    pthread_mutex_unlock(&client_mutex);
+
+    pthread_mutex_lock(&user_mutex);
+    bool removed = account_remove(m->a1);
+    if (removed) users_save();
+    pthread_mutex_unlock(&user_mutex);
+    if (removed) {
+        char ok[256];
+        snprintf(ok, sizeof(ok), "ANNOUNCE|User '%s' deleted.\n", m->a1);
+        net_broadcast(ok, NULL);
+        net_broadcast_user_list();
+        log_message("INFO", "Admin deleted user '%s'", m->a1);
+    } else {
+        char err[256];
+        snprintf(err, sizeof(err), "ERROR|Cannot delete user '%s' (not found)\n", m->a1);
+        send_raw(c, err);
     }
 }
 
 static void h_reset_pass(Client *c, Cmd *m) {
-    if (c->is_admin) {
-        pthread_mutex_lock(&user_mutex);
-        bool ok = user_reset_pass(m->a1, m->a2);
-        if (ok) users_save();
-        pthread_mutex_unlock(&user_mutex);
-        if (ok) {
-            char msg[256];
-            snprintf(msg, sizeof(msg), "ANNOUNCE|Password reset for '%s'.\n", m->a1);
-            send_raw(c, msg);
-            log_message("INFO", "Admin reset password for '%s'", m->a1);
-        } else {
-            char err[256];
-            snprintf(err, sizeof(err), "ERROR|Cannot reset password for '%s' (not found)\n", m->a1);
-            send_raw(c, err);
-        }
-    } else {
+    if (!c->is_admin) {
         send_raw(c, "ERROR|Only admin can reset passwords\n");
+        return;
+    }
+    pthread_mutex_lock(&user_mutex);
+    bool ok = user_reset_pass(m->a1, m->a2);
+    if (ok) users_save();
+    pthread_mutex_unlock(&user_mutex);
+    if (ok) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "ANNOUNCE|Password reset for '%s'.\n", m->a1);
+        send_raw(c, msg);
+        log_message("INFO", "Admin reset password for '%s'", m->a1);
+    } else {
+        char err[256];
+        snprintf(err, sizeof(err), "ERROR|Cannot reset password for '%s' (not found)\n", m->a1);
+        send_raw(c, err);
     }
 }
 
 static void h_list_accounts(Client *c, Cmd *m) {
     (void)m;
-    if (c->is_admin) {
-        char list[4096] = {0};
-        pthread_mutex_lock(&user_mutex);
-        for (UserAccount *u = user_list; u; u = u->next) {
-            net_list_append(list, sizeof(list), ",", u->username);
-        }
-        pthread_mutex_unlock(&user_mutex);
-        char out[4096 + 64];
-        snprintf(out, sizeof(out), "ACCOUNT_LIST|%s\n", list);
-        send_raw(c, out);
-    } else {
+    if (!c->is_admin) {
         send_raw(c, "ERROR|Only admin can list accounts\n");
+        return;
     }
+    char list[4096] = {0};
+    pthread_mutex_lock(&user_mutex);
+    for (UserAccount *u = user_list; u; u = u->next) {
+        net_list_append(list, sizeof(list), ",", u->username);
+    }
+    pthread_mutex_unlock(&user_mutex);
+    char out[4096 + 64];
+    snprintf(out, sizeof(out), "ACCOUNT_LIST|%s\n", list);
+    send_raw(c, out);
 }
 
 static void h_logout(Client *c, Cmd *m) {
     (void)m;
-    c->active = false;
+    c->active = false;   /* the receive loop sees this and cleans up */
 }
 
 /* ---- dispatch ---- */
 
+/* Route one parsed command to its handler. The "parts >= N" checks make
+ * sure the client sent enough fields before we read them. */
 void dispatch_command(Client *c, Cmd *m) {
     if (strcmp(m->cmd, "LOGIN") == 0 && m->parts >= 3)            h_login(c, m);
     else if (strcmp(m->cmd, "PUBLIC") == 0 && m->parts >= 2)      h_public(c, m);
