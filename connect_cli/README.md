@@ -30,11 +30,21 @@ connect_v2/
   bin/          Compiled executables (chatclient, chatserver)
   build/        Object files
   client/       TUI client
-    client.c    State, command dispatch, message handling, select() main loop
+    client.c    main() + the single select() loop (small)
+    protocol.c  handle_line(): turns server lines into screen events
+    commands.c  /slash commands + input processor
+    files.c     file send/receive state machine + base64
     net.c/h     Socket connect + line send
     tui.c/h     Raw terminal, ANSI drawing, input
   server/       Threaded TCP server
-    server.c    accept loop, client threads, protocol dispatch
+    server.c    main() + select() accept loop (small)
+    server.h    Shared types, globals, prototypes
+    connection.c  Per-client receive thread (reads lines, dispatches)
+    handlers.c    One small function per chat command
+    files.c       Upload slots, FIFO queue, FILE_* handlers
+    users.c       Account storage (config/users.cred)
+    history.c     Per-room recent-message history
+    net.c         Client list + broadcast helpers
     room.c/h    Room list (create/delete/update, protected rooms)
     room_access.c  Per-user access to protected rooms
     logger.c/h  File-based logging

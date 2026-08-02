@@ -24,11 +24,21 @@ ConnectHub/
 │   ├── bin/                     # Built executables: chatclient, chatserver
 │   ├── build/                   # .o object files
 │   ├── client/                  # CLI client code
-│   │   ├── client.c / client.h  # Protocol dispatch, commands, file transfer
+│   │   ├── client.c / client.h  # main() + the single select() loop
+│   │   ├── protocol.c           # handle_line(): turns server lines into screen events
+│   │   ├── commands.c           # /slash commands + input processor
+│   │   ├── files.c              # file send/receive state machine + base64
 │   │   ├── net.c / net.h        # Socket helpers
 │   │   └── tui.c                # Raw-mode terminal drawing (ANSI)
 │   ├── server/                  # Threaded TCP server
-│   │   ├── server.c             # accept() loop + command dispatch
+│   │   ├── server.c             # main() + select() accept loop (small!)
+│   │   ├── server.h             # Shared types, globals, and prototypes
+│   │   ├── connection.c         # Per-client receive thread (reads lines)
+│   │   ├── handlers.c           # One small function per chat command
+│   │   ├── files.c              # Upload slots, FIFO queue, FILE_* handlers
+│   │   ├── users.c              # Account storage (config/users.cred)
+│   │   ├── history.c            # Per-room recent-message history
+│   │   ├── net.c                # Client list + broadcast helpers
 │   │   ├── room.c / room.h      # Room list management
 │   │   ├── room_access.c        # "Has joined protected room" tracking
 │   │   └── logger.c / logger.h  # File logging to logs/server.log
@@ -123,131 +133,111 @@ passwords so plaintext is never saved.
 
 ## 3. CLI Server — `connect_cli/server/`
 
-### 3.1 `server.c` — everything the server does
+> **Architecture at a glance.** The old single 1400-line `server.c` was split into
+> small modules, each owning one job. `server.c` is now ~130 lines and only does
+> two things: **open the socket** and **run the `select()` accept loop**. Every
+> other piece of behaviour lives in its own file, listed below.
+>
+> **Concurrency model** — the whole thing to explain in a viva:
+> - the main thread uses **`select()`** with a **1-second timeout** on the
+>   listening socket, so it can also run the upload-queue housekeeping every tick;
+> - each accepted connection is handled by **its own detached thread**
+>   (`connection.c`) using **blocking** `recv()`/`send()`;
+> - shared state (client list, users, upload slots, transfers) is guarded by
+>   named mutexes: `client_mutex`, `user_mutex`, `upload_mutex`, `transfer_mutex`
+>   (+ a per-room-history `lock`).
+>
+> Why `select()` and not `epoll`/`poll`? For a small LAN chat server (dozens of
+> clients at most) `select()` is simpler and perfectly adequate; each client
+> already runs in its own thread, so the main loop never has to juggle thousands
+> of sockets.
 
-**Data structures**
-- `UploadSlot` (line 27): a granted "permission to upload" — token, sender,
-  filename, recipient, size, timestamp, active flag. Max **2 concurrent**
-  uploads.
-- `UploadQueueEntry` (line 48): a `FILE_REQUEST` that could not start because the
-  limits were reached — stored in a **FIFO queue** (`upload_queue_head/tail`),
-  each with the owning `Client*` and `queued_at` time.
-- `Client` (line 54): one per socket — fd, address, username, room, admin flag,
-  thread id, linked-list `next`.
-- `UserAccount` (line 77): username/password/active for normal users.
-- `RoomHistory` (line 93): per-room ring of the last 50 message lines.
-- `FileTransfer` (line 157): record of a pending offer (sender, filename,
-  recipient, size).
-
-Global state is protected by named mutexes: `client_mutex`, `user_mutex`,
-`upload_mutex`, `transfer_mutex` (+ per-history `lock`).
-
-**Housekeeping helpers**
-
-| Function | Line | What it does |
-|----------|------|--------------|
-| `upload_expire_stale()` | 70 | Every second in the main loop, deactivate upload slots older than 30 s so dead senders don't block the 2 slots, then expire stale queue entries and promote the queue |
-| `upload_expire_queue()` | 581 | Drop queue entries waiting longer than `QUEUE_TIMEOUT_SEC` (120 s), replying `FILE_DENIED|…|Upload wait timed out` |
-| `upload_active_bytes()` / `upload_can_accept()` | 478/486 | Sum of in-flight bytes; whether a new transfer of `size` bytes fits the **combined 1 MB budget** (`MAX_TOTAL_UPLOAD_BYTES`) with a free slot |
-| `upload_enqueue()` | 495 | Add a request to the FIFO queue, reply `FILE_WAIT|filename|position|size` (or `FILE_DENIED` if the queue is full) |
-| `upload_grant_one()` | 533 | Pop a queued entry: fill a slot with a fresh token, send `FILE_GRANTED` to the owner, forward the `FILE_OFFER` |
-| `upload_process_queue()` | 612 | While limits allow, promote queued entries (called after every slot release: `FILE_END`, `FILE_REJECT`, timeout, disconnect) |
-| `upload_queue_remove_client()` | 630 | Purge a disconnected client's queued requests |
-| `history_init()` | 103 | Reset all room histories |
-| `history_for_room()` | 108 | Look up a room's history or create one (max 32) |
-| `history_add()` | 122 | Append a message line; drop oldest when count > 50 |
-| `history_replay()` | 146 | Send all stored lines of a room to a fresh joiner (`/history`, late joiners) |
-| `transfer_add()` / `transfer_remove()` / `transfer_find()` | 168/182/198 | Insert/delete/lookup a pending file offer in the transfer list |
-| `sanitize_filename()` | 208 | Strip `/ \ | \n \r \0` from a filename (path-traversal protection) |
-| `get_timestamp()` | 219 | Current time as `"02:30 PM"` (12-hour) |
-
-**User / account management**
+### 3.1 `server.c` — entry point (small on purpose)
 
 | Function | Line | What it does |
 |----------|------|--------------|
-| `account_remove()` | 224 | Delete a `UserAccount` node from the list |
-| `user_exists()` | 238 | Is a username already registered? |
-| `is_hex64()` | 247 | Is a string a 64-char hex value (i.e. already a SHA-256 hash)? |
-| `user_create_plain()` | 258 | Add account storing the password exactly as given |
-| `user_create()` | 271 | Add account but store `sha256_hex(password)` instead |
-| `user_reset_pass()` | 277 | Set a new (hashed) password for a user |
-| `user_validate()` | 289 | Hash the given password and compare to the stored hash |
-| `save_users()` | 301 | Rewrite `config/users.cred` with `user:hash` lines |
-| `load_users()` | 311 | Read `users.cred`; hashes any plaintext entries (auto-upgrades the file) |
+| `main()` | 42 | Parse optional port arg; load `admin.cred` and hash the admin password; init logger/rooms/users/history; create socket, `SO_REUSEADDR`, `bind`, `listen`; then run the **`select()` loop** with a 1 s timeout. On timeout it calls `files_expire_stale()` (housekeeping); on a readable socket it calls `accept()` and hands the socket to `net_spawn_client()` |
+| `signal_handler()` | 33 | `SIGINT`/`SIGTERM` → set `server_running = 0` and close the listening socket (async-signal-safe: no locks) |
+| `server_shutdown()` | 24 | Set the running flag off, close the listening socket, free every client, close the logger, free rooms/access |
 
-**Networking / delivery helpers**
+### 3.2 `connection.c` — the per-client thread
 
 | Function | Line | What it does |
 |----------|------|--------------|
-| `safe_send()` | 331 | `send()` with error checking — marks client inactive if it fails (broken pipe handling) |
-| `broadcast_room()` | 341 | Send a line to every active client currently in a given room |
-| `broadcast()` | 351 | Send a line to *every* active client |
-| `send_to_user()` | 361 | Send a line to one specific username |
-| `client_find()` | 374 | Look up a `Client` by username (caller must hold `client_mutex`) |
-| `client_remove()` | 382 | Unlink + free a `Client` and close its socket |
-| `broadcast_user_list()` | 397 | Build `USERS|a:1,b:1,…` and send to everyone (keeps sidebars in sync) |
-| `broadcast_room_list()` | 412 | Build `ROOMS|r1,r2:…` and broadcast |
-| `send_status_to()` | 420 | Admin-only stats: online users, message/file counters |
-| `finish_join()` | 433 | Set a client's room, replay history, send `JOIN_OK`, notify the room |
+| `handle_client()` | 37 | Runs in its own detached thread per client. Loops `recv()`, splits the byte stream into newline-terminated lines, splits each on `|` into a `Cmd` struct, and calls `dispatch_command()`. On disconnect it releases everything the user owned (`files_*` helpers) and broadcasts an updated user list |
+| `parse_command()` | 11 | Split `line` on `|` into `cmd/a1/a2/a3/a4`, preserving empty fields (needed for `CREATE_ROOM` with an empty description) |
 
-**`handle_client()` — the per-client thread (line 444)**
+### 3.3 `handlers.c` — one small function per chat command
 
-This is the heart of the server. Each client gets its own detached thread running
-this loop:
+`dispatch_command()` (line 402) matches the command name and calls one tiny
+handler. Chat commands live here; `FILE_*` commands are forwarded to `files.c`:
 
-1. `recv()` up to `BUFFER_SIZE` bytes (line 451).
-2. Split the stream into newline-terminated lines (lines 455–1024).
-3. For each line, split on `|` into up to 5 tokens (preserving empty fields —
-   important for `CREATE_ROOM` with empty description) (lines 461–483).
-4. **Dispatch on `cmd`** — the first token. Major branches:
-
-| Command | Line | Behaviour |
+| Handler | Line | Behaviour |
 |---------|------|-----------|
-| `LOGIN` | 487 | Reject duplicates; admin (`admin` user) validated against hashed admin password, normal users against `user_validate()`. On success: mark active, join `general`, replay history, broadcast user/room lists |
-| `PUBLIC` | 542 | Store in room history and broadcast to the sender's room |
-| `PRIVATE` | 549 | Deliver to both recipient and sender (both see the conversation) |
-| `TYPING` | 556 | Broadcast "X is typing" to the room (except sender) |
-| `JOIN` | 560 | Check room exists; if protected, require password once, then `room_grant_access()`; `finish_join()` |
-| `LEAVE` | 583 | Return to `general`, notify old room |
-| `CREATE` | 591 | Simple room creation |
-| `CREATE_ROOM` | 598 | Extended creation with title/description/password |
-| `DELETE_ROOM` | 615 | Only creator or admin; boot members back to `general` |
-| `UPDATE_ROOM` | 633 | Change title/description/password |
-| `LIST_USERS` / `LIST_ROOMS` | 643/657 | Send the lists to the requester |
-| `WHO` | 663 | List users currently in a room |
-| `HISTORY` | 686 | Replay current room history (no cross-room leak) |
-| `STATS` | 689 | Admin only |
-| `ANNOUNCE` | 697 | Admin only — broadcast to all |
-| `KICK` | 708 | Admin only — send `KICK`, shut the socket down |
-| `CREATE_USER` | 731 | Admin only — add account, persist |
-| `DELETE_USER` | 752 | Admin only — kick if online, remove account, persist |
-| `RESET_PASS` | 784 | Admin only — new hashed password |
-| `LIST_ACCOUNTS` | 805 | Admin only |
-| `FILE_REQUEST` | 822 | Validate size, check the active limits (≤ 2 concurrent, combined ≤ 1 MB); grant a slot + token and reply `FILE_GRANTED`, or enqueue the request and reply `FILE_WAIT|filename|position` |
-| `FILE_OFFER` | 884 | Legacy direct offer path (no slot) |
-| `FILE_DATA` | 894 | Forward one base64 chunk to the recipient, but only if the embedded token matches the slot (authorization) |
-| `FILE_END` | 946 | Notify recipient transfer complete, free slot + transfer record |
-| `FILE_ACCEPT` | 970 | Tell sender the recipient accepted (starts streaming) |
-| `FILE_REJECT` | 988 | Tell sender, free slot + record |
-| `LOGOUT` | 1015 | Mark inactive and break |
+| `h_login` | 16 | Reject duplicates; admin (`admin`) validated against the hashed admin password, normal users against `user_validate()`. On success: mark active, join `general`, replay history, broadcast user/room lists |
+| `h_public` | 72 | Store in room history and broadcast to the sender's room |
+| `h_private` | 83 | Deliver to both recipient and sender (both see the conversation) |
+| `h_typing` | 94 | Broadcast "X is typing" to the room (except sender) |
+| `h_join` | 103 | Check the room exists; if protected, require the password once, then grant access and `net_finish_join()` |
+| `h_leave` | 128 | Return to `general`, notify the old room |
+| `h_create` / `h_create_room` | 139/148 | Simple and extended (title/description/password) room creation |
+| `h_delete_room` | 168 | Only creator or admin; boot members back to `general` |
+| `h_update_room` | 188 | Change title/description/password |
+| `h_list_users` / `h_list_rooms` / `h_who` | 200/217/226 | Send the live lists / users-in-a-room to the requester |
+| `h_history` | 251 | Replay current room history (no cross-room leak) |
+| `h_stats` | 259 | Admin only — online users, message/file counters |
+| `h_announce` | 268 | Admin only — broadcast to all |
+| `h_kick` | 281 | Admin only — send `KICK`, shut the socket down |
+| `h_create_user` / `h_delete_user` / `h_reset_pass` / `h_list_accounts` | 303/324/356/377 | Admin-only account management |
+| `h_logout` | 395 | Mark the client inactive (the connection thread then exits) |
 
-5. **Cleanup on disconnect** (lines 1028–1066): remove from client list, free
-   any upload slots / transfer records owned by the user, broadcast updated user
-   list and a "disconnected" notice.
+### 3.4 `files.c` — file transfer (slots, FIFO queue, `FILE_*` handlers)
 
-**Server lifecycle**
+Three pieces of state, each with its own mutex: `upload_slots[]` (max 2
+concurrent uploads), the **FIFO upload queue**, and `transfer_list` (active
+offers). The wire handlers are:
 
 | Function | Line | What it does |
 |----------|------|--------------|
-| `server_shutdown()` | 1068 | Set running flag off, close all sockets, free all clients, close logger, free rooms/access |
-| `signal_handler()` | 1085 | `SIGINT`/`SIGTERM` → set flag + close listening socket (async-signal-safe: no locks) |
-| `main()` | 1094 | Parse optional port arg; load `admin.cred`, hash admin password; init logger/rooms/users/history; create socket, `SO_REUSEADDR`, `bind`, `listen`; then an **event loop** using `select()` with 1 s timeout so it can run `upload_expire_stale()` as housekeeping; `accept()` each connection and spawn a detached `handle_client()` thread |
+| `files_handler_request` | 320 | Validate size (≤ 64 MB). If the limits allow (≤ 2 slots, combined ≤ 1 MB budget), grant a slot + random token and reply `FILE_GRANTED`; otherwise enqueue and reply `FILE_WAIT|filename|position` |
+| `files_handler_offer` | 381 | Legacy direct offer path (no slot) |
+| `files_handler_data` | 395 | Forward one base64 chunk to the recipient, but only if the embedded token matches the slot (authorization) |
+| `files_handler_end` / `files_handler_accept` / `files_handler_reject` | 452/469/490 | Finish / accept / reject a transfer; `files_release()` frees the slot + record and promotes the queue |
+| `files_expire_stale` | 252 | Deactivate slots idle > 30 s, drop queue entries waiting > 120 s, then promote the queue (called every second from `main`) |
+| `files_process_queue` | 199 | While limits allow, promote queued entries to granted slots |
+| `files_queue_remove_client` / `files_remove_slots` / `files_remove_transfers` | 267/290/74 | Disconnect cleanup — purge everything a leaving user owned |
+| `upload_active_bytes` / `upload_can_accept` / `upload_enqueue` / `upload_grant_one` | 92/100/119/157 | The queue machinery itself |
 
-*Viva point — concurrency model:* one thread per client, shared state guarded by
-mutexes. The main thread only accepts; heavy work happens in client threads.
-Handlers never call a broadcast while holding `client_mutex` (avoids deadlock).
+### 3.5 `users.c` — account storage
 
-### 3.2 `room.c` / `room.h` — rooms
+| Function | Line | What it does |
+|----------|------|--------------|
+| `users_load()` / `users_save()` | 98/89 | Read/write `config/users.cred` as `user:sha256hex` lines; hashing plaintext entries on load auto-upgrades the file |
+| `user_create()` / `user_reset_pass()` / `user_validate()` | 45/51/63 | Create an account (stores `sha256_hex(password)`), set a new hashed password, verify a login |
+| `account_remove()` | 74 | Delete a `UserAccount` node |
+| `user_create_plain()` / `user_exists()` / `is_hex64()` | 32/12/21 | Internals used while loading |
+
+### 3.6 `history.c` — recent-message history
+
+| Function | Line | What it does |
+|----------|------|--------------|
+| `history_init()` | 24 | Reset all room histories |
+| `history_add()` | 43 | Append a message line; drop the oldest when a room has more than 50 |
+| `history_replay()` | 67 | Send a room's stored lines to a fresh joiner (`/history`, late joiners) |
+
+### 3.7 `net.c` — client list + delivery
+
+| Function | Line | What it does |
+|----------|------|--------------|
+| `net_spawn_client()` | 146 | Allocate a `Client`, add it to the list, run `handle_client()` in a detached thread |
+| `safe_send()` / `net_broadcast()` / `net_broadcast_room()` / `net_send_to_user()` | 13/54/44/32 | Deliver a line to one client, everyone, a room, or a username — with broken-pipe handling |
+| `net_client_find()` / `net_client_remove()` | 24/64 | Look up / unlink a `Client` (find expects the caller to hold `client_mutex`) |
+| `net_broadcast_user_list()` / `net_broadcast_room_list()` | 79/94 | Build `USERS|a:1,b:1,…` / `ROOMS|…` and broadcast so sidebars stay in sync |
+| `net_send_status()` / `net_finish_join()` | 102/115 | Admin stats; and set a client's room + replay history + send `JOIN_OK` + notify the room |
+| `net_sanitize_filename()` / `net_get_timestamp()` | 128/139 | Strip `/ \ | \n` from filenames (path-traversal protection); format the time as `"02:30 PM"` |
+| `net_close_all_clients()` | 170 | Shutdown path — close and free every client |
+
+### 3.8 `room.c` / `room.h` — rooms
 
 | Function | Line | What it does |
 |----------|------|--------------|
@@ -299,101 +289,64 @@ Levels used: `INFO`, `MSG`, `PRIV`, `CTRL`, `FILE`.
   history, pending file offers, and the send/receive state machines for file
   transfer.
 
-### 4.2 `client.c` — protocol + commands + file transfer
+> **Architecture at a glance.** The client is split so the entry point is tiny
+> and each concern has its own file: `client.c` (main + select loop),
+> `protocol.c` (incoming server lines), `commands.c` (slash commands + input),
+> `files.c` (file transfer), `net.c` (socket), `tui.c` (terminal drawing).
 
-**Parsing / encoding helpers**
-
-| Function | Line | What it does |
-|----------|------|--------------|
-| `parse_pipe()` | 20 | Split a protocol line on `\|` into up to `max` fields |
-| `after_pipes()` | 37 | Return pointer to text after the Nth `\|` (used to grab base64) |
-| `b64tab` / `b64encode()` | 48/50 | Encode raw bytes to base64 (3→4 chars, `=` padding) |
-| `b64val()` / `b64decode()` | 65/74 | Decode base64 back to raw bytes |
-| `update_user_list()` / `update_room_list()` | 91/108 | Parse the CSV user/room lists from `USERS`/`ROOMS` into the App arrays |
-| `request_lists()` | 125 | Send `LIST_USERS` + `LIST_ROOMS` (keeps sidebar fresh) |
-| `path_basename()` | 129 | Strip directory part from a path |
-
-**File send**
+### 4.2 `client.c` — main() + the single `select()` loop (entry point)
 
 | Function | Line | What it does |
 |----------|------|--------------|
-| `request_send_file()` | 137 | `stat()` the file (must be a regular file, ≤ 64 MB), set send state=1, send `FILE_REQUEST|name|size|target` |
-| `find_offer()` / `add_offer()` / `remove_offer()` | 331/340/358 | Manage the local list of incoming offers (shown as `[1] alice offers 'x' …`) |
-| `finalize_received()` | 371 | Close `.tmp` file, pick a unique name (` (n)` suffix if taken), `rename()` into `files/` |
-| `try_send_chunk()` | 538 | Called each loop when streaming (state 3): read up to 2048 raw bytes, base64-encode, send `FILE_DATA|filename|token|b64`, send `FILE_END` when done |
+| `main()` | 179 | Parse `--host/--port/--user/--pass/--admin` (with positional fallback); init the `App`; enter raw mode; then a **reconnect loop** that calls `run_session()` again after `/logout` |
+| `run_session()` | 96 | Connect, reset the app state to the login screen, optionally auto-login (`--user/--pass` on the first connect only), then run the inner **`select()` loop** until the session ends |
+| `read_from_server()` | 38 | `recv()` → assemble newline-terminated lines → `handle_line()` (protocol.c); returns false when the loop must exit (disconnect/logout) |
+| `read_from_stdin()` | 60 | Read one keystroke: Enter → `process_input()`; backspace; arrow keys for command history; Ctrl-C to quit; printable chars → append to the input line + `send_typing()` |
+| `client_quit()` | 30 | Restore the terminal, close the socket, exit |
+| `on_signal()` | (top) | `SIGINT`/`SIGTERM` set a flag so the loop exits cleanly |
 
-**`cmd_process()` — slash-command handler (line 161)**
-
-Parses `/command args` and sends the matching protocol line:
-
-| Command | Line | Sends |
-|---------|------|-------|
-| `/help` | 166 | prints command list |
-| `/quit`, `/exit` | 177 | `LOGOUT` + exit |
-| `/logout` | 180 | `LOGOUT`, waits for reconnect |
-| `/msg <u> <t>` | 188 | `PRIVATE\|u\|t` |
-| `/join <room> [pw]` | 198 | `JOIN\|room\|pw` |
-| `/leave` | 207 | `LEAVE\|general` |
-| `/create <room>` | 209 | `CREATE\|room` |
-| `/createroom` | 216 | `CREATE_ROOM\|name\|title\|desc\|pw` |
-| `/rooms` / `/users` | 224/242 | `LIST_ROOMS` / `LIST_USERS` |
-| `/who [room]` | 226 | `WHO\|room` |
-| `/history` | 232 | `HISTORY` |
-| `/deleteroom <r>` | 235 | `DELETE_ROOM\|r` |
-| `/clear` | 244 | clears local chat buffer |
-| `/typing` | 246 | `TYPING\|general` |
-| `/stats` | 248 | `STATS` |
-| `/announce <t>` | 250 | `ANNOUNCE\|t` |
-| `/kick <u> <why>` | 255 | `KICK\|u\|why` |
-| `/createuser <u> <p>` | 262 | `CREATE_USER\|u\|p` |
-| `/deleteuser <u>` | 269 | `DELETE_USER\|u` |
-| `/resetpass <u> <p>` | 276 | `RESET_PASS\|u\|p` |
-| `/accounts` | 283 | `LIST_ACCOUNTS` |
-| `/sendfile [@u] <path>` | 285 | `request_send_file()` |
-| `/accept <n>` / `/reject <n>` | 295/309 | `FILE_ACCEPT` / `FILE_REJECT` by offer number |
-
-**`handle_line()` — incoming message dispatcher (line 399)**
-
-The inverse of `cmd_process`. Parses the first field and reacts:
-
-| Message | Line | Effect |
-|---------|------|--------|
-| `LOGIN_OK` | 403 | mark logged in, set room, request lists |
-| `LOGIN_FAIL` | 413 | show reason, go back to password step |
-| `PUBLIC` | 418 | print `[time] user: text` (normal line) |
-| `PRIVATE` | 423 | print as PM (magenta) |
-| `NOTIFY` / `ANNOUNCE` | 428/433 | system / admin notices |
-| `TYPING` | 440 | record who is typing (shown in status bar) |
-| `USERS` / `ROOMS` | 446/448 | refresh sidebar lists |
-| `JOIN_OK` / `JOIN_FAIL` | 450/457 | room change result |
-| `ROOM_CREATED` | 459 | success notice |
-| `STATUS` / `ACCOUNT_LIST` | 462/464 | info lines |
-| `KICK` | 466 | show reason, disconnect |
-| `ERROR` | 469 | show error |
-| `FILE_GRANTED` | 471 | store token, wait for recipient accept (state 2) |
-| `FILE_DENIED` | 478 | show reason, abort |
-| `FILE_WAIT` | 483 | show "queued at position N", keep waiting for the later `FILE_GRANTED` (state 1) |
-| `FILE_OFFER` | 482 | push a pending offer |
-| `FILE_ACCEPT` | 484 | recipient accepted → open file, start streaming (state 3) |
-| `FILE_REJECT` | 496 | recipient declined → abort |
-| `FILE_DATA` | 500 | decode + append chunk to `files/name.tmp`, update progress |
-| `FILE_END` | 532 | finalize received file |
-
-**Input loop helpers**
-
-| Function | Line | What it does |
-|----------|------|--------------|
-| `push_history()` | 564 | Store typed line in history ring (max 100, dedupes consecutive) |
-| `send_typing()` | 579 | Send `TYPING` while typing (throttled by the main loop) |
-| `process_input()` | 586 | If not logged in → login flow (username → masked password → `LOGIN`). Else `/cmd` → `cmd_process`, plain text → `PUBLIC` |
-| `client_quit()` | 628 | Restore terminal, close socket, exit |
-| `on_signal()` | 634 | `SIGINT`/`SIGTERM` set a flag to exit the loop cleanly |
-| `main()` | 636 | Parse `--host/--port/--user/--pass/--admin` (with positional fallback); enter raw mode; **reconnect loop** (re-logs-in after `/logout`); inside: `select()` on stdin+socket with 100 ms timeout; keystrokes handled (Enter, backspace, arrows for history, Ctrl-C); on socket data, assemble lines → `handle_line()`; every iteration calls `try_send_chunk()` + `tui_draw()` so the UI stays live while uploading |
+The **`select()` call lives in `run_session()`** (line 124): it watches `stdin`
+and the socket with a **100 ms timeout**, so the UI stays responsive and file
+chunks stream while the user types. After each select tick the loop also clears a
+stale "typing…" indicator, calls `files_try_send_chunk()` (keeps uploads moving),
+and redraws via `tui_draw()`.
 
 *Viva point — single-threaded client:* everything (network, keyboard, drawing,
 file streaming) lives in ONE `select()` loop, so the interface never freezes.
 
-### 4.3 `net.c` — socket helpers
+### 4.3 `protocol.c` — turning server lines into screen events
+
+| Function | Line | What it does |
+|----------|------|--------------|
+| `handle_line()` | 84 | The inverse of the server's dispatch. Splits a received line on `\|` and reacts to each message type: prints chat/PM/notify lines, refreshes the user/room sidebars, handles login/join results, and routes `FILE_*` messages to `files.c` |
+| `parse_pipe()` | 17 | Split a protocol line on `\|` into up to `max` fields |
+| `after_pipes()` | 34 | Return a pointer to the text after the Nth `\|` (used to grab large base64 chunks) |
+| `update_user_list()` / `update_room_list()` | 45/62 | Parse the CSV lists from `USERS`/`ROOMS` into the App arrays |
+| `request_lists()` | 79 | Send `LIST_USERS` + `LIST_ROOMS` to keep the sidebar fresh |
+
+### 4.4 `commands.c` — slash commands + the input processor
+
+| Function | Line | What it does |
+|----------|------|--------------|
+| `cmd_process()` | 80 | Parse `/command args` and send the matching protocol line: `/msg`→`PRIVATE`, `/join`→`JOIN`, `/sendfile`→`files_request_send_file()`, `/accept`/`/reject`→`FILE_ACCEPT`/`FILE_REJECT`, admin commands (`/announce`, `/kick`, `/createuser`, …), and `/help` |
+| `process_input()` | 38 | Called on Enter. If not logged in → the login wizard (username → masked password → `LOGIN`). If logged in and the line starts with `/` → `cmd_process()`; otherwise send it as `PUBLIC` and echo it locally |
+| `push_history()` | 16 | Store typed lines in the history ring (max 100, consecutive dedupe) for the up/down arrows |
+| `send_typing()` | 31 | Send `TYPING|room` so others see the "typing…" indicator |
+
+### 4.5 `files.c` — file send / receive
+
+| Function | Line | What it does |
+|----------|------|--------------|
+| `b64tab` / `b64encode()` | 19 | Encode raw bytes to base64 (3→4 chars, `=` padding) |
+| `b64val()` / `b64decode()` | 34/43 | Decode base64 back to raw bytes |
+| `path_basename()` | 60 | Strip the directory part from a path |
+| `find_offer()` / `files_add_offer()` / `files_remove_offer()` | 67/76/94 | Manage the local list of incoming offers (`[1] alice offers 'x' …`) |
+| `files_request_send_file()` | 108 | `stat()` the file (must be a regular file, ≤ 64 MB), set send state 1, send `FILE_REQUEST|name|size|target` |
+| `files_finalize_received()` | 135 | Close the `.tmp` file, pick a unique name (` (n)` suffix if taken), `rename()` into `files/` |
+| `files_receive_chunk()` | 164 | Append one decoded base64 chunk to `files/name.tmp`, update progress (state machine for starting a fresh receive) |
+| `files_try_send_chunk()` | 199 | Called every select tick while streaming (state 3): read up to 2048 raw bytes, base64-encode, send `FILE_DATA|filename|token|b64`, then `FILE_END` when done |
+
+### 4.6 `net.c` — socket helpers
 
 | Function | Line | What it does |
 |----------|------|--------------|
@@ -401,7 +354,7 @@ file streaming) lives in ONE `select()` loop, so the interface never freezes.
 | `net_send_line()` | 32 | Send a whole line + `\n`, looping until fully sent (partial-write safe) |
 | `net_close()` | 49 | `shutdown()` + `close()` |
 
-### 4.4 `tui.c` — terminal user interface
+### 4.7 `tui.c` — terminal user interface
 
 Uses `termios` (raw mode) + ANSI escape sequences.
 

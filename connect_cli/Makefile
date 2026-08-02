@@ -18,10 +18,10 @@ $(OBJDIR)/client/%.o: client/%.c
 $(OBJDIR)/server/%.o: server/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BINDIR)/chatclient: $(OBJDIR)/client/client.o $(OBJDIR)/client/net.o $(OBJDIR)/client/tui.o $(OBJDIR)/shared/protocol.o
+$(BINDIR)/chatclient: $(OBJDIR)/client/client.o $(OBJDIR)/client/net.o $(OBJDIR)/client/tui.o $(OBJDIR)/client/protocol.o $(OBJDIR)/client/commands.o $(OBJDIR)/client/files.o $(OBJDIR)/shared/protocol.o
 	$(CC) $^ -o $@
 
-$(BINDIR)/chatserver: $(OBJDIR)/server/server.o $(OBJDIR)/server/room.o $(OBJDIR)/server/room_access.o $(OBJDIR)/server/logger.o $(OBJDIR)/shared/protocol.o $(OBJDIR)/shared/sha256.o
+$(BINDIR)/chatserver: $(OBJDIR)/server/server.o $(OBJDIR)/server/connection.o $(OBJDIR)/server/net.o $(OBJDIR)/server/handlers.o $(OBJDIR)/server/users.o $(OBJDIR)/server/history.o $(OBJDIR)/server/files.o $(OBJDIR)/server/room.o $(OBJDIR)/server/room_access.o $(OBJDIR)/server/logger.o $(OBJDIR)/shared/protocol.o $(OBJDIR)/shared/sha256.o
 	$(CC) $^ -o $@ -lpthread
 
 clean:

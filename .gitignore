@@ -2,4 +2,7 @@ bin/
 build/
 logs/
 files/
+*.o
+*.tmp
+.DS_Store
 .agents/

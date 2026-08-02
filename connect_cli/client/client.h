@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <stdbool.h>
+#include <time.h>
 #include "../shared/constants.h"
 
 #define MAX_CHAT_LINES 600
@@ -87,9 +88,23 @@ void tui_add_line(App *app, LineKind kind, const char *fmt, ...);
 void tui_add_notify(App *app, const char *fmt, ...);
 void tui_set_input(App *app, const char *s);
 
-/* client.c */
-void cmd_process(App *app, const char *line);
+/* protocol.c - turns incoming server lines into screen events */
 void handle_line(App *app, const char *line);
+
+/* commands.c - slash commands + the input processor */
+void cmd_process(App *app, const char *line);
+void process_input(App *app);
+void send_typing(App *app);
+
+/* files.c - outbound/inbound file transfer */
+void files_request_send_file(App *app, const char *target, const char *path);
+void files_add_offer(App *app, const char *sender, const char *filename, long size, const char *target);
+void files_remove_offer(App *app, const char *sender, const char *filename);
+void files_receive_chunk(App *app, const char *sender, const char *filename, const char *b64);
+void files_finalize_received(App *app);
+void files_try_send_chunk(App *app);
+
+/* client.c */
 void client_quit(App *app);
 
 #endif
