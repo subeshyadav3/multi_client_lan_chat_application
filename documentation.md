@@ -49,7 +49,7 @@ ConnectHub is a two-tier **client–server** architecture over TCP:
 ### 2.4 Token-Guarded Chunked File Transfer
 Sender → Server → Recipient:
 1. Sender initiates: `FILE_REQUEST|filename|size|target`.
-2. Server verifies the size (≤ 64 MiB limit). If upload slots (max 2) or global budget (128 MiB) are full, the request is queued in a FIFO queue (cap 16) with `FILE_WAIT`.
+2. Server verifies the size (≤ 2 MiB limit). If upload slots (max 2) or global budget (4 MiB) are full, the request is queued in a FIFO queue (cap 16) with `FILE_WAIT`.
 3. Server mints a pseudo-random **upload token**, sends `FILE_GRANTED|sender|filename|TOKEN|size` to the sender, and forwards `FILE_OFFER|sender|filename|size|target` to the recipient.
 4. Recipient responds: `/accept <n>` → `FILE_ACCEPT` or `/reject <n>` → `FILE_REJECT`.
 5. On acceptance, sender streams `FILE_DATA|filename|TOKEN|<base64_chunk>` in 2048-byte binary chunks (~2732 Base64 characters). Server verifies the token on every chunk before forwarding.

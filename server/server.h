@@ -46,7 +46,7 @@
 /* Limits that control how many uploads / bytes the server allows at
  * once, how deep the waiting FIFO queue may grow, and timeouts. */
 #define MAX_CONCURRENT_UPLOADS 2      /* how many uploads can run at once */
-#define MAX_TOTAL_UPLOAD_BYTES (128 * 1024 * 1024) /* total in-flight bytes cap (128 MB) */
+#define MAX_TOTAL_UPLOAD_BYTES (4 * 1024 * 1024)   /* total in-flight bytes cap (4 MB) */
 #define MAX_QUEUE_DEPTH 16            /* max entries waiting in the queue */
 #define UPLOAD_TIMEOUT_SEC 30         /* how long a granted slot stays valid */
 #define QUEUE_TIMEOUT_SEC 120         /* how long a queue entry may wait */

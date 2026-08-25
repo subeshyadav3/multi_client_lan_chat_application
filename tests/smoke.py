@@ -204,26 +204,32 @@ def main():
         assert join_ok_found, f"JOIN_OK not found in lines: {lines}"
         print("  ✓ Room history replayed to newly joined user upon join")
 
-        # 9. Token-Guarded Chunked File Transfer (3 MB large file test)
-        file_size = 3 * 1024 * 1024  # 3 MB (> 2 MB)
-        subesh.send(f"FILE_REQUEST|large_test.iso|{file_size}|saroj")
+        # 9. Token-Guarded Chunked File Transfer (2 MB max per file, 4 MB combined)
+        # 9a. Over-limit rejection test (>2 MB)
+        subesh.send("FILE_REQUEST|oversize.iso|3145728|saroj")
+        denied = subesh.expect("FILE_DENIED|")
+        assert "oversize.iso" in denied and "large" in denied.lower(), denied
+        print("  ✓ File exceeding 2 MB limit (3 MB) rejected with FILE_DENIED")
+
+        # 9b. Valid 1.5 MB file transfer
+        file_size = int(1.5 * 1024 * 1024)
+        subesh.send(f"FILE_REQUEST|project.pdf|{file_size}|saroj")
         grant = subesh.expect("FILE_GRANTED|")
         token = grant.split("|")[3]
-        assert len(token) > 0, "No token granted for 3MB file"
+        assert len(token) > 0, "No token granted"
 
         saroj.expect("FILE_OFFER|")
-        saroj.send("FILE_ACCEPT|subesh|large_test.iso")
+        saroj.send("FILE_ACCEPT|subesh|project.pdf")
         subesh.expect("FILE_ACCEPT|")
 
-        # Stream sample chunk
         sample_chunk = b"X" * 2048
         b64_data = base64.b64encode(sample_chunk).decode("ascii")
-        subesh.send(f"FILE_DATA|large_test.iso|{token}|{b64_data}")
+        subesh.send(f"FILE_DATA|project.pdf|{token}|{b64_data}")
         saroj.expect("FILE_DATA|")
 
-        subesh.send("FILE_END|large_test.iso")
+        subesh.send("FILE_END|project.pdf")
         saroj.expect("FILE_END|")
-        print("  ✓ Large file (>2 MB: 3 MB) token-guarded transfer granted & completed without queue block")
+        print("  ✓ Valid 1.5 MB file transfer token-guarded and completed")
 
         # 10. Admin Operations
         admin = Client()

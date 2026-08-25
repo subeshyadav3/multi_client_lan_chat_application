@@ -23,7 +23,7 @@
 #define MAX_SEARCH_RESULTS 100 /* Maximum search results returned             */
 
 /* ---------- File transfer ---------- */
-#define MAX_FILE_SIZE (64 * 1024 * 1024) /* 64 MB maximum accepted file size  */
+#define MAX_FILE_SIZE (2 * 1024 * 1024)   /* 2 MB maximum accepted file size   */
 #define MAX_FILENAME 256                  /* Maximum filename length          */
 #define FILE_CHUNK_SIZE 2048              /* Bytes sent in one file-data chunk */
 
