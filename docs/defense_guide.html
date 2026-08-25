@@ -171,7 +171,7 @@
 |   | • client_mutex   : clients[] registry (lookups, active connections, disconnections)      |   |
 |   | • user_mutex     : users[] credentials table (SHA-256 verification, user creation)       |   |
 |   | • room_mutex     : rooms[] table (room creation, deletion, password hashing)              |   |
-|   | • upload_mutex   : upload_slots[2] & upload_queue (FIFO queue, 1 MiB byte budget)        |   |
+|   | • upload_mutex   : upload_slots[2] & upload_queue (FIFO queue, 128 MiB budget)          |   |
 |   | • transfer_mutex : transfer_list (maps sender + filename to recipient)                   |   |
 |   | • Per-Room Locks : per-room message ring buffers (50 messages per room)                  |   |
 |   +------------------------------------------------------------------------------------------+   |
@@ -281,7 +281,7 @@
           <tr><td><code class="inline">client_mutex</code></td><td><code class="inline">clients[]</code> linked list & active count</td><td>Prevents two simultaneous logins from claiming the same username or corrupting the global client pointer list.</td></tr>
           <tr><td><code class="inline">user_mutex</code></td><td><code class="inline">users[]</code> credentials table</td><td>Guarantees thread-safe account lookup, runtime user registration, and password hashing against <code class="inline">config/users.cred</code>.</td></tr>
           <tr><td><code class="inline">room_mutex</code></td><td><code class="inline">rooms[]</code> table & access lists</td><td>Prevents race conditions when multiple users create, join, or delete rooms concurrently.</td></tr>
-          <tr><td><code class="inline">upload_mutex</code></td><td><code class="inline">upload_slots[2]</code> & FIFO queue</td><td>Atomically enforces maximum concurrent uploads (2) and active byte budgets (1 MiB).</td></tr>
+          <tr><td><code class="inline">upload_mutex</code></td><td><code class="inline">upload_slots[2]</code> & FIFO queue</td><td>Atomically enforces maximum concurrent uploads (2) and active byte budgets (128 MiB).</td></tr>
           <tr><td><code class="inline">transfer_mutex</code></td><td><code class="inline">transfer_list</code> active offers</td><td>Maps active transfers from sender to recipient so file data chunks route accurately.</td></tr>
           <tr><td>Per-Room Locks</td><td>Per-room message ring buffer</td><td>Allows simultaneous chat messaging in different rooms without global lock contention.</td></tr>
         </table>
@@ -458,7 +458,7 @@ Client 1 (Sender: subesh)            Server (chatserver)                  Client
         <table>
           <tr><th>Constant</th><th>Value</th><th>System Protection Rationale</th></tr>
           <tr><td><code class="inline">MAX_CONCURRENT_UPLOADS</code></td><td>2 uploads</td><td>Prevents disk I/O and socket buffer saturation on the server.</td></tr>
-          <tr><td><code class="inline">MAX_TOTAL_UPLOAD_BYTES</code></td><td>1 MiB</td><td>Active memory budget limit for all concurrent in-flight chunks.</td></tr>
+          <tr><td><code class="inline">MAX_TOTAL_UPLOAD_BYTES</code></td><td>128 MiB</td><td>Combined budget limit allowing 2 concurrent uploads up to 64 MiB each.</td></tr>
           <tr><td><code class="inline">MAX_QUEUE_DEPTH</code></td><td>16 requests</td><td>Bounded FIFO queue depth to prevent memory exhaustion from burst requests.</td></tr>
           <tr><td><code class="inline">FILE_CHUNK_SIZE</code></td><td>2048 bytes (2 KB)</td><td>Encodes to 2732 Base64 bytes, fitting safely within 4096-byte <code class="inline">BUFFER_SIZE</code>.</td></tr>
           <tr><td><code class="inline">MAX_FILE_SIZE</code></td><td>64 MiB</td><td>Upper safety limit to prevent server and client disk overflow.</td></tr>

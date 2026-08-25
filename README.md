@@ -12,7 +12,7 @@ Designed and implemented for systems programming, computer networking, and opera
 - **Concurrent Multithreaded TCP Server:** One detached POSIX thread per client connection with fine-grained mutex synchronization across 6 locking domains (clients, users, rooms, uploads, transfers, history).
 - **Single-Threaded Non-Blocking Client:** Driven by a single `select()` loop multiplexing keyboard `stdin` and TCP socket descriptors.
 - **Custom Wire Protocol:** Human-readable pipe-delimited line protocol (`TYPE|field1|field2|...\n`) debuggable via `netcat` or Wireshark.
-- **Token-Guarded Chunked File Transfer:** Rate-limited upload subsystem (2 concurrent uploads, 1 MiB byte budget) streaming 2 KB binary chunks encoded in Base64 (~2.7 KB payload) to prevent stream delimiter collisions.
+- **Token-Guarded Chunked File Transfer:** Rate-limited upload subsystem (2 concurrent uploads, 128 MiB budget / 64 MiB per file) streaming 2 KB binary chunks encoded in Base64 (~2.7 KB payload) to prevent stream delimiter collisions.
 - **In-House Cryptography:** NIST FIPS 180-4 compliant SHA-256 implementation written from scratch in `shared/sha256.c` (no OpenSSL dependency).
 - **Room Management & History:** Password-protected custom rooms, presence notifications (`NOTIFY`), and ring-buffer history replay (last 50 messages).
 - **Admin Dashboard:** Real-time server statistics (`/stats`), global broadcast announcements (`/announce`), account management (`/createuser`, `/deleteuser`, `/resetpass`), and user moderation (`/kick`).

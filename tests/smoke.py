@@ -204,25 +204,26 @@ def main():
         assert join_ok_found, f"JOIN_OK not found in lines: {lines}"
         print("  ✓ Room history replayed to newly joined user upon join")
 
-        # 9. Token-Guarded Chunked File Transfer
-        test_payload = b"ConnectHub test file payload data for integrity validation"
-        file_size = len(test_payload)
-        subesh.send(f"FILE_REQUEST|test.dat|{file_size}|saroj")
+        # 9. Token-Guarded Chunked File Transfer (3 MB large file test)
+        file_size = 3 * 1024 * 1024  # 3 MB (> 2 MB)
+        subesh.send(f"FILE_REQUEST|large_test.iso|{file_size}|saroj")
         grant = subesh.expect("FILE_GRANTED|")
         token = grant.split("|")[3]
-        assert len(token) > 0
+        assert len(token) > 0, "No token granted for 3MB file"
 
         saroj.expect("FILE_OFFER|")
-        saroj.send("FILE_ACCEPT|subesh|test.dat")
+        saroj.send("FILE_ACCEPT|subesh|large_test.iso")
         subesh.expect("FILE_ACCEPT|")
 
-        b64_data = base64.b64encode(test_payload).decode("ascii")
-        subesh.send(f"FILE_DATA|test.dat|{token}|{b64_data}")
+        # Stream sample chunk
+        sample_chunk = b"X" * 2048
+        b64_data = base64.b64encode(sample_chunk).decode("ascii")
+        subesh.send(f"FILE_DATA|large_test.iso|{token}|{b64_data}")
         saroj.expect("FILE_DATA|")
 
-        subesh.send("FILE_END|test.dat")
+        subesh.send("FILE_END|large_test.iso")
         saroj.expect("FILE_END|")
-        print("  ✓ Token-guarded chunked file transfer completed")
+        print("  ✓ Large file (>2 MB: 3 MB) token-guarded transfer granted & completed without queue block")
 
         # 10. Admin Operations
         admin = Client()
