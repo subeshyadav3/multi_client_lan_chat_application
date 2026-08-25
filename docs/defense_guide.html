@@ -3,377 +3,607 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ConnectHub — Project Defense Master Portal & Interactive Study Guide</title>
+  <title>ConnectHub — Complete Systems Theory, Architecture & Feature Testing Manual</title>
   <style>
     :root {
-      --primary: #1e3a8a;
-      --primary-light: #3b82f6;
-      --secondary: #0f172a;
+      --bg: #090d16;
+      --bg-surface: #0f172a;
+      --bg-card: #1e293b;
+      --bg-card-hover: #273549;
+      --border: #334155;
+      --border-accent: #3b82f6;
+      --primary: #38bdf8;
+      --primary-dark: #0284c7;
       --accent: #f97316;
-      --bg: #0f172a;
-      --surface: #1e293b;
-      --surface-card: #334155;
+      --success: #10b981;
+      --purple: #a855f7;
       --text: #f8fafc;
       --text-muted: #94a3b8;
-      --border: #475569;
-      --success: #10b981;
-      --code-bg: #090d16;
+      --code-bg: #030712;
     }
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-    body { background-color: var(--bg); color: var(--text); line-height: 1.6; padding-bottom: 60px; }
-    
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; }
+    body { background-color: var(--bg); color: var(--text); line-height: 1.65; padding-bottom: 80px; }
+
     /* Header */
-    header { background: linear-gradient(135deg, #1e3a8a, #0f172a); padding: 40px 20px; border-bottom: 2px solid var(--primary-light); text-align: center; }
-    header h1 { font-size: 2.4rem; margin-bottom: 10px; color: #60a5fa; letter-spacing: -0.5px; }
-    header p { font-size: 1.1rem; color: var(--text-muted); max-width: 800px; margin: 0 auto; }
-    .badge-bar { margin-top: 15px; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
-    .badge { background: rgba(59, 130, 246, 0.2); border: 1px solid #3b82f6; color: #93c5fd; padding: 4px 12px; border-radius: 999px; font-size: 0.85rem; font-weight: 600; }
-    
-    /* Navigation Tabs */
-    .nav-container { position: sticky; top: 0; z-index: 100; background: #1e293b; border-bottom: 1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
-    .tabs { display: flex; max-width: 1200px; margin: 0 auto; overflow-x: auto; padding: 0 10px; }
-    .tab-btn { background: none; border: none; color: var(--text-muted); padding: 14px 20px; font-size: 0.95rem; font-weight: 600; cursor: pointer; border-bottom: 3px solid transparent; white-space: nowrap; transition: all 0.2s; }
-    .tab-btn:hover { color: var(--text); background: rgba(255,255,255,0.05); }
-    .tab-btn.active { color: #60a5fa; border-bottom-color: #3b82f6; background: rgba(59, 130, 246, 0.1); }
-    
-    /* Main Content Container */
-    .container { max-width: 1100px; margin: 30px auto; padding: 0 20px; }
+    header { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0369a1 100%); padding: 45px 25px; border-bottom: 2px solid var(--primary); text-align: center; }
+    header h1 { font-size: 2.5rem; margin-bottom: 12px; color: #7dd3fc; letter-spacing: -0.5px; }
+    header p { font-size: 1.15rem; color: #cbd5e1; max-width: 900px; margin: 0 auto; }
+    .badge-bar { margin-top: 18px; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+    .badge { background: rgba(56, 189, 248, 0.15); border: 1px solid #38bdf8; color: #bae6fd; padding: 4px 14px; border-radius: 999px; font-size: 0.85rem; font-weight: 600; }
+
+    /* Navigation */
+    .nav-container { position: sticky; top: 0; z-index: 100; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(10px); border-bottom: 1px solid var(--border); box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
+    .tabs { display: flex; max-width: 1250px; margin: 0 auto; overflow-x: auto; padding: 0 15px; }
+    .tab-btn { background: none; border: none; color: var(--text-muted); padding: 15px 22px; font-size: 0.95rem; font-weight: 600; cursor: pointer; border-bottom: 3px solid transparent; white-space: nowrap; transition: all 0.2s; }
+    .tab-btn:hover { color: var(--text); background: rgba(255,255,255,0.04); }
+    .tab-btn.active { color: #38bdf8; border-bottom-color: #38bdf8; background: rgba(56, 189, 248, 0.1); }
+
+    /* Main Container */
+    .container { max-width: 1180px; margin: 35px auto; padding: 0 20px; }
     .tab-content { display: none; }
-    .tab-content.active { display: block; animation: fadeIn 0.3s ease; }
+    .tab-content.active { display: block; animation: fadeIn 0.25s ease-out; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* Cards & Typography */
+    .card { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 12px; padding: 28px; margin-bottom: 28px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
+    .card h2 { font-size: 1.6rem; color: #7dd3fc; margin-bottom: 18px; border-bottom: 1px solid var(--border); padding-bottom: 10px; display: flex; align-items: center; gap: 10px; }
+    .card h3 { font-size: 1.25rem; color: #f1f5f9; margin: 24px 0 12px 0; display: flex; align-items: center; gap: 8px; }
+    .card h4 { font-size: 1.05rem; color: #cbd5e1; margin: 16px 0 8px 0; }
+    p { margin-bottom: 14px; color: #cbd5e1; }
+
+    /* Callouts */
+    .callout { background: rgba(56, 189, 248, 0.08); border-left: 4px solid var(--primary); padding: 18px 22px; border-radius: 0 10px 10px 0; margin: 18px 0; }
+    .callout-title { font-weight: 700; color: #7dd3fc; margin-bottom: 6px; font-size: 1.05rem; display: flex; align-items: center; gap: 6px; }
     
-    /* Cards & Callouts */
-    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 24px; margin-bottom: 24px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-    .card h2 { font-size: 1.5rem; color: #93c5fd; margin-bottom: 16px; border-bottom: 1px solid var(--border); padding-bottom: 8px; display: flex; align-items: center; gap: 8px; }
-    .card h3 { font-size: 1.2rem; color: #f8fafc; margin: 20px 0 10px 0; }
-    
-    .callout { background: rgba(59, 130, 246, 0.1); border-left: 4px solid #3b82f6; padding: 16px 20px; border-radius: 0 8px 8px 0; margin-bottom: 20px; }
-    .callout-title { font-weight: 700; color: #93c5fd; margin-bottom: 6px; font-size: 1.05rem; }
-    
-    .callout-gold { background: rgba(249, 115, 22, 0.1); border-left: 4px solid #f97316; padding: 16px 20px; border-radius: 0 8px 8px 0; margin-bottom: 20px; }
+    .callout-gold { background: rgba(249, 115, 22, 0.08); border-left: 4px solid var(--accent); padding: 18px 22px; border-radius: 0 10px 10px 0; margin: 18px 0; }
     .callout-gold .callout-title { color: #fdba74; }
-    
+
+    .callout-purple { background: rgba(168, 85, 247, 0.08); border-left: 4px solid var(--purple); padding: 18px 22px; border-radius: 0 10px 10px 0; margin: 18px 0; }
+    .callout-purple .callout-title { color: #d8b4fe; }
+
+    .callout-green { background: rgba(16, 185, 129, 0.08); border-left: 4px solid var(--success); padding: 18px 22px; border-radius: 0 10px 10px 0; margin: 18px 0; }
+    .callout-green .callout-title { color: #6ee7b7; }
+
     /* Tables */
-    table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 0.95rem; }
-    th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--border); }
-    th { background: #0f172a; color: #93c5fd; font-weight: 600; }
+    table { width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 0.95rem; }
+    th, td { padding: 13px 16px; text-align: left; border-bottom: 1px solid var(--border); }
+    th { background: #030712; color: #7dd3fc; font-weight: 600; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px; }
     tr:hover td { background: rgba(255,255,255,0.02); }
-    
+
     /* Code Blocks */
     pre, code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace; }
-    pre { background: var(--code-bg); border: 1px solid #1e293b; padding: 14px; border-radius: 8px; overflow-x: auto; color: #38bdf8; font-size: 0.9rem; margin: 12px 0; }
-    code.inline { background: var(--surface-card); color: #f472b6; padding: 2px 6px; border-radius: 4px; font-size: 0.85rem; }
-    
-    /* Accordion (Viva Q&A) */
-    .accordion-item { background: var(--surface-card); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
+    pre { background: var(--code-bg); border: 1px solid #1e293b; padding: 16px; border-radius: 8px; overflow-x: auto; color: #38bdf8; font-size: 0.9rem; margin: 14px 0; line-height: 1.5; }
+    code.inline { background: var(--bg-card); color: #f472b6; padding: 2px 7px; border-radius: 5px; font-size: 0.88rem; border: 1px solid #334155; }
+
+    /* Flow Diagrams */
+    .flow-diagram { background: #020617; border: 1px solid #1e293b; border-radius: 10px; padding: 20px; font-family: monospace; color: #a5f3fc; white-space: pre; overflow-x: auto; font-size: 0.88rem; line-height: 1.4; margin: 18px 0; }
+
+    /* Steps */
+    .step-box { display: flex; gap: 18px; margin-bottom: 24px; }
+    .step-num { background: linear-gradient(135deg, #0284c7, #2563eb); color: white; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0; font-size: 1.1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
+    .step-content { background: var(--bg-card); padding: 18px 22px; border-radius: 10px; flex-grow: 1; border: 1px solid var(--border); }
+    .step-header { font-weight: 700; color: #7dd3fc; margin-bottom: 8px; font-size: 1.1rem; }
+
+    /* Accordion */
+    .accordion-item { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
     .accordion-header { padding: 16px 20px; font-weight: 600; cursor: pointer; display: flex; justify-content: space-between; align-items: center; transition: background 0.2s; color: #f1f5f9; }
-    .accordion-header:hover { background: rgba(255,255,255,0.05); }
-    .accordion-content { padding: 0 20px; max-height: 0; overflow: hidden; transition: all 0.3s ease; background: #1e293b; color: #cbd5e1; border-top: 1px solid transparent; }
-    .accordion-content.open { padding: 16px 20px; max-height: 600px; border-top-color: var(--border); }
+    .accordion-header:hover { background: var(--bg-card-hover); }
+    .accordion-content { padding: 0 20px; max-height: 0; overflow: hidden; transition: all 0.3s ease; background: #0f172a; color: #cbd5e1; border-top: 1px solid transparent; }
+    .accordion-content.open { padding: 18px 20px; max-height: 800px; border-top-color: var(--border); }
     .arrow { transition: transform 0.2s; font-size: 0.8rem; }
     .arrow.open { transform: rotate(180deg); }
-    
-    /* Flashcard Quiz */
-    .quiz-box { text-align: center; padding: 30px; background: #0f172a; border: 2px dashed #3b82f6; border-radius: 12px; margin: 20px 0; }
-    .flashcard { min-height: 140px; display: flex; flex-direction: column; justify-content: center; align-items: center; font-size: 1.15rem; font-weight: 600; color: #60a5fa; cursor: pointer; padding: 15px; }
-    .flashcard-ans { margin-top: 15px; font-size: 1rem; font-weight: 400; color: #a7f3d0; display: none; }
-    .quiz-controls { display: flex; justify-content: center; gap: 12px; margin-top: 15px; }
-    .btn { background: #2563eb; color: white; border: none; padding: 10px 18px; border-radius: 6px; font-weight: 600; cursor: pointer; transition: 0.2s; font-size: 0.9rem; }
-    .btn:hover { background: #1d4ed8; }
-    .btn-secondary { background: var(--surface-card); color: var(--text); border: 1px solid var(--border); }
-    .btn-secondary:hover { background: #475569; }
-    
-    /* Timeline / Demo steps */
-    .step-item { display: flex; gap: 16px; margin-bottom: 20px; align-items: flex-start; }
-    .step-num { background: #3b82f6; color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0; }
-    .step-body { background: var(--surface-card); padding: 14px 18px; border-radius: 8px; flex-grow: 1; border: 1px solid var(--border); }
-    .step-title { font-weight: 700; color: #93c5fd; margin-bottom: 4px; }
 
-    /* Interactive Search */
-    .search-input { width: 100%; padding: 12px 16px; background: #0f172a; border: 1px solid var(--border); border-radius: 8px; color: white; font-size: 1rem; margin-bottom: 20px; }
-    .search-input:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.3); }
+    /* Search Input */
+    .search-bar { width: 100%; padding: 14px 18px; background: #030712; border: 1px solid var(--border); border-radius: 8px; color: white; font-size: 1rem; margin-bottom: 22px; }
+    .search-bar:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.25); }
+
+    /* Flashcards */
+    .flashcard-container { text-align: center; padding: 35px 25px; background: #030712; border: 2px dashed #38bdf8; border-radius: 12px; margin: 24px 0; }
+    .flashcard-box { min-height: 160px; display: flex; flex-direction: column; justify-content: center; align-items: center; cursor: pointer; padding: 15px; }
+    .flashcard-q { font-size: 1.25rem; font-weight: 700; color: #7dd3fc; margin-bottom: 12px; }
+    .flashcard-a { font-size: 1.05rem; color: #86efac; line-height: 1.6; display: none; margin-top: 12px; text-align: left; }
+    .fc-btn { background: #0284c7; color: white; border: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer; margin: 6px; font-size: 0.95rem; transition: 0.2s; }
+    .fc-btn:hover { background: #0369a1; }
+    .fc-btn-subtle { background: var(--bg-card); color: var(--text); border: 1px solid var(--border); }
+    .fc-btn-subtle:hover { background: #334155; }
   </style>
 </head>
 <body>
 
   <header>
-    <h1>ConnectHub Defense & Viva Master Guide</h1>
-    <p>Comprehensive Systems Programming, POSIX Sockets, Concurrency & Wire Protocol Defense Portal</p>
+    <h1>ConnectHub Systems Engineering & Architecture Guide</h1>
+    <p>Comprehensive Theory, POSIX Sockets, Concurrency, Wire Protocols, and Step-by-Step Testing Manual</p>
     <div class="badge-bar">
       <span class="badge">Plain C (C11)</span>
-      <span class="badge">POSIX Threads & Mutexes</span>
+      <span class="badge">Berkeley Sockets</span>
+      <span class="badge">POSIX Threads (pthread)</span>
       <span class="badge">select() Multiplexing</span>
-      <span class="badge">From-Scratch SHA-256</span>
-      <span class="badge">Zero External Libs</span>
-      <span class="badge">Pulchowk Campus IOE</span>
+      <span class="badge">NIST SHA-256</span>
+      <span class="badge">termios Raw TUI</span>
+      <span class="badge">Zero Dependencies</span>
     </div>
   </header>
 
   <div class="nav-container">
     <div class="tabs">
-      <button class="tab-btn active" onclick="switchTab('tab-elevator')">🎯 30s Pitch</button>
-      <button class="tab-btn" onclick="switchTab('tab-architecture')">🏛️ Architecture</button>
-      <button class="tab-btn" onclick="switchTab('tab-concurrency')">🔒 Mutex & Concurrency</button>
-      <button class="tab-btn" onclick="switchTab('tab-protocol')">📡 Wire Protocol</button>
-      <button class="tab-btn" onclick="switchTab('tab-files')">📦 File Subsystem</button>
-      <button class="tab-btn" onclick="switchTab('tab-demo')">🚀 Live Demo Script</button>
-      <button class="tab-btn" onclick="switchTab('tab-viva')">💡 Top 20 Defense Q&A</button>
-      <button class="tab-btn" onclick="switchTab('tab-quiz')">⚡ Interactive Flashcards</button>
+      <button class="tab-btn active" onclick="switchTab('tab-overview')">🗺️ Project Overview</button>
+      <button class="tab-btn" onclick="switchTab('tab-theory-net')">🌐 Sockets & TCP Theory</button>
+      <button class="tab-btn" onclick="switchTab('tab-theory-concurrency')">🔒 Concurrency & Mutexes</button>
+      <button class="tab-btn" onclick="switchTab('tab-theory-io')">⚡ select() & termios</button>
+      <button class="tab-btn" onclick="switchTab('tab-theory-crypto')">🔑 SHA-256 & Base64</button>
+      <button class="tab-btn" onclick="switchTab('tab-file-subsystem')">📦 File Transfer Mechanics</button>
+      <button class="tab-btn" onclick="switchTab('tab-how-to-test')">🧪 How to Test Every Feature</button>
+      <button class="tab-btn" onclick="switchTab('tab-qa')">💡 Deep Dive Concept Q&A</button>
+      <button class="tab-btn" onclick="switchTab('tab-flashcards')">⚡ Interactive Flashcards</button>
     </div>
   </div>
 
   <div class="container">
 
-    <!-- TAB 1: 30s Pitch -->
-    <div id="tab-elevator" class="tab-content active">
+    <!-- ==================== TAB 1: OVERVIEW ==================== -->
+    <div id="tab-overview" class="tab-content active">
       <div class="card">
-        <h2>🎯 The 30-Second Defense Opening Statement</h2>
-        <div class="callout-gold">
-          <div class="callout-title">Memorize and Recite This Confidently When Asked to Introduce Your Project:</div>
-          <p style="font-size: 1.1rem; line-height: 1.7; color: #f8fafc;">
-            "Good morning, respected professors and external examiners. Our project is <strong>ConnectHub</strong> — a lightweight, multi-client LAN chat and file-sharing application written entirely from scratch in plain C with zero third-party dependencies.<br><br>
-            It implements a concurrent TCP server utilizing POSIX threads and fine-grained mutex synchronization to support up to 128 simultaneous clients, paired with a single-threaded terminal client powered by an asynchronous <code>select()</code> I/O multiplexing event loop with raw <code>termios</code> ANSI rendering.<br><br>
-            We designed our own human-readable wire protocol, a token-guarded rate-limited chunked file transfer subsystem, per-room ring buffer history replay, and an in-house cryptographic SHA-256 password authentication engine adhering to NIST FIPS 180-4. Today, we are ready to demonstrate the entire application running live."
-          </p>
+        <h2>🗺️ High-Level Project Overview & Data Flow</h2>
+        <p>ConnectHub is a <strong>two-tier client–server LAN chat and file-sharing application</strong> written entirely in C without external libraries. The server manages all clients, chat rooms, authentication, message history, and file uploads. The client runs a single-threaded event loop to provide an interactive full-screen terminal interface.</p>
+
+        <div class="flow-diagram">
++--------------------------------------------------------------------------------------------------+
+|                                     CONNECTHUB TCP SERVER                                        |
+|                                                                                                  |
+|   +------------------------------------------------------------------------------------------+   |
+|   | 1. main() in server.c: loads config/*.cred, inits modules, creates socket, binds, listens |   |
+|   | 2. accept_loop() with select() (1s timeout):                                             |   |
+|   |    - If connection arrives: accept() -> net_spawn_client() spawns detached pthread        |   |
+|   |    - On 1s timeout: files_expire_stale() cleans timed-out upload slots & advances queue   |   |
+|   +------------------------------------------------------------------------------------------+   |
+|                                                |                                                 |
+|                                                | (Spawns 1 pthread per connected client)          |
+|                                                v                                                 |
+|   +------------------------------------------------------------------------------------------+   |
+|   | Thread Worker: handle_client() in connection.c                                           |   |
+|   | - recv() accumulates incoming TCP byte streams into complete lines ending in '\n'        |   |
+|   | - parse_command() splits line by '|' into Cmd struct (CMD|arg1|arg2|arg3|arg4)           |   |
+|   | - dispatch_command() in handlers.c routes message to handler functions                   |   |
+|   +------------------------------------------------------------------------------------------+   |
+|                                                |                                                 |
+|                   Protected by 6 Dedicated Mutex Locks in Shared Memory                          |
+|   +------------------------------------------------------------------------------------------+   |
+|   | • client_mutex   : clients[] registry (lookups, active connections, disconnections)      |   |
+|   | • user_mutex     : users[] credentials table (SHA-256 verification, user creation)       |   |
+|   | • room_mutex     : rooms[] table (room creation, deletion, password hashing)              |   |
+|   | • upload_mutex   : upload_slots[2] & upload_queue (FIFO queue, 1 MiB byte budget)        |   |
+|   | • transfer_mutex : transfer_list (maps sender + filename to recipient)                   |   |
+|   | • Per-Room Locks : per-room message ring buffers (50 messages per room)                  |   |
+|   +------------------------------------------------------------------------------------------+   |
++------------------------------------------------▲-------------------------------------------------+
+                                                 |
+                               TCP Socket Stream (Port 8080)
+                         Wire Format: TYPE|arg1|arg2|arg3|arg4\n
+                                                 |
++------------------------------------------------▼-------------------------------------------------+
+|                                     CONNECTHUB CLI CLIENT                                        |
+|                                                                                                  |
+|   +------------------------------------------------------------------------------------------+   |
+|   | Single-Threaded select() Event Loop (run_session() in client.c):                         |   |
+|   |                                                                                          |   |
+|   |   Monitors 2 File Descriptors with select() (100ms timeout):                             |   |
+|   |   1. STDIN_FILENO (fd 0)   -> Keyboard keystrokes intercepted via raw termios mode       |   |
+|   |   2. sockfd (TCP socket)   -> Incoming protocol lines from server                        |   |
+|   |   3. 100ms Timeout Tick    -> streams outbound file chunks (files_try_send_chunk)        |   |
+|   |                               & auto-clears typing indicators                            |   |
+|   +------------------------------------------------------------------------------------------+   |
+|                                                |                                                 |
+|                                                v                                                 |
+|   +------------------------------------------------------------------------------------------+   |
+|   | 4-Region Zero-Dependency ANSI Terminal User Interface (tui.c):                           |   |
+|   | 1. Scrollable Chat History Area (replays last 50 room messages, PMs, and file offers)    |   |
+|   | 2. Right-Hand Sidebar (dynamic list of online users & rooms)                             |   |
+|   | 3. System Status Bar (active room, user count, server address)                           |   |
+|   | 4. Command Input Buffer (arrow-key history, masked password entry, typing dispatcher)     |   |
+|   +------------------------------------------------------------------------------------------+   |
++--------------------------------------------------------------------------------------------------+
         </div>
 
-        <h3>Key Selling Points to Emphasize</h3>
+        <h3>Source Code Module Map</h3>
         <table>
-          <tr><th>Feature</th><th>How it was Built</th><th>Academic Significance</th></tr>
-          <tr><td>Zero External Dependencies</td><td>Standard C Library & POSIX calls only</td><td>No libevent, ncurses, OpenSSL, or glib crutches.</td></tr>
-          <tr><td>Server Concurrency</td><td>1 detached pthread per client + 6 mutex domains</td><td>Demonstrates race condition & deadlock prevention.</td></tr>
-          <tr><td>Client Responsiveness</td><td>Single-threaded <code>select()</code> loop</td><td>Multiplexes keyboard, socket, and timers with zero locks.</td></tr>
-          <tr><td>Cryptographic Auth</td><td>From-scratch SHA-256 implementation</td><td>Bitwise logical operators, 64 constant rounds, 512-bit blocks.</td></tr>
-          <tr><td>Binary File Transfer</td><td>Token-guarded Base64 streaming in 2KB chunks</td><td>Safe ASCII transmission avoiding TCP stream delimiter collisions.</td></tr>
+          <tr><th>Directory</th><th>File</th><th>Exact Purpose in System</th></tr>
+          <tr><td><code>server/</code></td><td><code>server.c</code></td><td>Initializes subsystems, loads credentials, binds listening socket, and executes <code>select()</code> accept loop.</td></tr>
+          <tr><td><code>server/</code></td><td><code>connection.c</code></td><td>Per-client thread body: reads TCP stream, accumulates bytes into whole <code>\n</code> lines, parses fields, and handles clean disconnection cleanup.</td></tr>
+          <tr><td><code>server/</code></td><td><code>handlers.c</code></td><td>Dispatches protocol commands (<code>LOGIN</code>, <code>PUBLIC</code>, <code>PRIVATE</code>, <code>JOIN</code>, <code>KICK</code>, <code>ANNOUNCE</code>, <code>STATS</code>).</td></tr>
+          <tr><td><code>server/</code></td><td><code>files.c</code></td><td>Manages 2 upload slots, 16-deep FIFO queue, token minting, and routing of <code>FILE_DATA</code> chunks.</td></tr>
+          <tr><td><code>server/</code></td><td><code>room.c / room_access.c</code></td><td>Room lifecycle, ownership, password protection, and member registry.</td></tr>
+          <tr><td><code>server/</code></td><td><code>users.c</code></td><td>Reads/writes accounts from <code>config/users.cred</code> and validates SHA-256 password digests.</td></tr>
+          <tr><td><code>server/</code></td><td><code>history.c</code></td><td>Per-room ring buffer storing the last 50 messages for replay to new joiners.</td></tr>
+          <tr><td><code>server/</code></td><td><code>logger.c</code></td><td>Thread-safe logging to <code>logs/server.log</code>.</td></tr>
+          <tr><td><code>client/</code></td><td><code>client.c</code></td><td>Client entry point, command-line argument parser, and single-threaded <code>select()</code> event loop.</td></tr>
+          <tr><td><code>client/</code></td><td><code>commands.c</code></td><td>Parses user slash-commands (<code>/msg</code>, <code>/join</code>, <code>/sendfile</code>, etc.) and formats wire protocol messages.</td></tr>
+          <tr><td><code>client/</code></td><td><code>tui.c</code></td><td>Configures terminal raw mode via <code>termios</code> and renders the 4-region ANSI interface.</td></tr>
+          <tr><td><code>client/</code></td><td><code>files.c</code></td><td>Splits local files into 2048-byte slices, Base64 encodes them, and reassembles incoming chunks into <code>files/</code>.</td></tr>
+          <tr><td><code>shared/</code></td><td><code>sha256.c</code></td><td>NIST FIPS 180-4 compliant SHA-256 implementation written from scratch.</td></tr>
+          <tr><td><code>shared/</code></td><td><code>protocol.c / constants.h</code></td><td>Protocol formatting constants, buffer sizes, and limits.</td></tr>
         </table>
       </div>
     </div>
 
-    <!-- TAB 2: Architecture -->
-    <div id="tab-architecture" class="tab-content">
+    <!-- ==================== TAB 2: SOCKETS & TCP THEORY ==================== -->
+    <div id="tab-theory-net" class="tab-content">
       <div class="card">
-        <h2>🏛️ System Architecture Deep-Dive</h2>
+        <h2>🌐 Berkeley Sockets & TCP/IP Deep-Dive</h2>
+
         <div class="callout">
-          <div class="callout-title">Two-Tier Centralized Client–Server Architecture</div>
-          All communication is strictly mediated by the server. Clients never talk peer-to-peer; this simplifies NAT/firewall traversal on local subnets and provides a single source of truth for accounts, room states, access permissions, and rate limiting.
+          <div class="callout-title">What is a Socket?</div>
+          In UNIX/Linux systems, <em>"everything is a file"</em>. A socket is an operating system abstraction representing an endpoint of network communication. When you call <code class="inline">socket()</code>, the kernel allocates a file descriptor (an integer index into the process's file descriptor table) and creates internal network send/receive ring buffers in kernel space.
         </div>
 
-        <h3>Server Subsystems & Role Breakdown</h3>
-        <table>
-          <tr><th>Module / File</th><th>Core Responsibility</th><th>Key Functions & System Calls</th></tr>
-          <tr><td><code>server/server.c</code></td><td>Entry point, config loading, listening socket setup, accept loop.</td><td><code>socket()</code>, <code>bind()</code>, <code>listen()</code>, <code>select()</code>, <code>accept()</code></td></tr>
-          <tr><td><code>server/connection.c</code></td><td>Per-client reader thread, packet framing accumulator, command parser.</td><td><code>recv()</code>, <code>pthread_create()</code>, <code>pthread_detach()</code></td></tr>
-          <tr><td><code>server/handlers.c</code></td><td>One handler per protocol command (login, msg, room, kick, stats).</td><td><code>h_login()</code>, <code>h_public()</code>, <code>h_private()</code>, <code>h_join()</code></td></tr>
-          <tr><td><code>server/files.c</code></td><td>Upload slots, FIFO queue, token validation, chunk routing.</td><td><code>upload_can_accept()</code>, <code>make_token()</code>, <code>upload_enqueue()</code></td></tr>
-          <tr><td><code>server/room.c & access.c</code></td><td>Room metadata, passwords, creator tracking, permissions.</td><td><code>room_create()</code>, <code>room_find()</code>, <code>room_access_check()</code></td></tr>
-          <tr><td><code>server/history.c</code></td><td>Ring buffer storing the last 50 messages per room.</td><td><code>history_add()</code>, <code>history_replay()</code></td></tr>
-          <tr><td><code>client/client.c</code></td><td>Single-threaded event loop multiplexing keyboard, socket, and timer.</td><td><code>select()</code>, <code>read(STDIN_FILENO)</code>, <code>files_try_send_chunk()</code></td></tr>
-          <tr><td><code>client/tui.c</code></td><td>Terminal raw mode management and 4-region ANSI rendering.</td><td><code>tcgetattr()</code>, <code>tcsetattr()</code>, ANSI escape sequences</td></tr>
-          <tr><td><code>shared/sha256.c</code></td><td>NIST FIPS 180-4 standard cryptographic hash algorithm.</td><td><code>sha256_init()</code>, <code>sha256_update()</code>, <code>sha256_final()</code></td></tr>
-        </table>
-      </div>
-    </div>
+        <h3>1. The Server Socket Lifecycle</h3>
+        <ol style="margin-left: 20px; line-height: 1.8;">
+          <li><code class="inline">socket(AF_INET, SOCK_STREAM, 0)</code>: Allocates an IPv4 (<code class="inline">AF_INET</code>) TCP (<code class="inline">SOCK_STREAM</code>) socket descriptor.</li>
+          <li><code class="inline">setsockopt(..., SO_REUSEADDR, &opt, sizeof(opt))</code>: <strong>Critical Systems Call!</strong> When a TCP server shuts down, sockets remain in the <code class="inline">TIME_WAIT</code> state for 1–2 minutes to ensure lingering in-flight packets expire. <code class="inline">SO_REUSEADDR</code> allows the server to immediately re-bind to port 8080 upon restart without getting <code class="inline">Address already in use</code> (EADDRINUSE).</li>
+          <li><code class="inline">bind(server_sock, (struct sockaddr*)&addr, sizeof(addr))</code>: Binds the socket to all local network interfaces (<code class="inline">INADDR_ANY</code>) and port 8080 (converted to network byte order via <code class="inline">htons(8080)</code>).</li>
+          <li><code class="inline">listen(server_sock, MAX_CLIENTS)</code>: Transitions the socket from active to passive listening mode. The kernel creates two internal queues:
+            <ul>
+              <li><strong>SYN Queue (Incomplete Connection Queue):</strong> Holds TCP connections in the process of 3-way handshaking.</li>
+              <li><strong>Accept Queue (Completed Connection Queue):</strong> Holds fully established connections waiting for the application to call <code class="inline">accept()</code>.</li>
+            </ul>
+          </li>
+          <li><code class="inline">accept(server_sock, ...)</code>: Extracts the first completed connection from the Accept Queue, allocates a <em>new dedicated socket descriptor</em> for that specific client, and leaves <code class="inline">server_sock</code> free to continue listening.</li>
+        </ol>
 
-    <!-- TAB 3: Concurrency -->
-    <div id="tab-concurrency" class="tab-content">
-      <div class="card">
-        <h2>🔒 POSIX Threads, Mutexes & Deadlock Prevention</h2>
+        <h3>2. Byte Stream vs Message Boundaries (TCP Stream Fragmentation)</h3>
         <div class="callout-gold">
-          <div class="callout-title">The Four Inviolable Server Concurrency Rules</div>
-          <ol style="margin-left: 20px; line-height: 1.8;">
-            <li><strong>Never Hold <code>client_mutex</code> While Broadcasting:</strong> Handlers copy client socket descriptors to a local array under lock, immediately release the lock, and then call <code>send()</code>. This prevents a slow or stalled client socket from locking the entire server.</li>
-            <li><strong>Snapshot Pattern (Copy-Under-Lock):</strong> Before inspecting client/room state, copy the data to stack memory. This ensures caller threads never touch deallocated memory if a client disconnects concurrently.</li>
-            <li><strong>Fine-Grained Mutex Isolation:</strong> Six independent locks (<code>client_mutex</code>, <code>user_mutex</code>, <code>room_mutex</code>, <code>upload_mutex</code>, <code>transfer_mutex</code>, and per-room history locks) eliminate global bottlenecking.</li>
-            <li><strong>Detached Thread Lifecycle:</strong> Server calls <code>pthread_detach(pthread_self())</code> on client thread startup, ensuring kernel memory is immediately reclaimed upon disconnect without needing a join manager.</li>
-          </ol>
+          <div class="callout-title">The Fundamental TCP Trap: Why You Cannot Assume 1 send() == 1 recv()</div>
+          <p>TCP is a <strong>continuous byte-stream protocol</strong> with no intrinsic concept of "messages" or "packets" at the application layer. The underlying network layer (IP packets, MTU, router fragmentation) splits and bundles bytes based on network conditions.</p>
+          <ul>
+            <li><strong>Packet Splitting:</strong> A single <code class="inline">send()</code> of 100 bytes may arrive across three separate <code class="inline">recv()</code> calls of 30, 50, and 20 bytes.</li>
+            <li><strong>Packet Coalescing (Nagle's Algorithm):</strong> Two quick <code class="inline">send()</code> calls may be merged into a single <code class="inline">recv()</code> buffer.</li>
+          </ul>
+          <p><strong>ConnectHub's Solution:</strong> We use <strong>newline-delimited framing (<code class="inline">\n</code>)</strong>. Both <code class="inline">server/connection.c</code> and <code class="inline">client/client.c</code> implement a <em>line accumulator buffer</em>. The thread loops over raw received bytes, accumulating them until a <code class="inline">\n</code> byte is found, guaranteeing that only complete, discrete command lines are parsed.</p>
         </div>
-
-        <h3>Mutex Locking Domain Table</h3>
-        <table>
-          <tr><th>Mutex Identifier</th><th>Protected Data</th><th>Guarded Invariant</th></tr>
-          <tr><td><code>client_mutex</code></td><td><code>clients[]</code> array, active user count</td><td>No two threads register duplicate usernames or corrupt client list.</td></tr>
-          <tr><td><code>user_mutex</code></td><td><code>users[]</code> database (config/users.cred)</td><td>Thread-safe account validation, creation, and password resets.</td></tr>
-          <tr><td><code>room_mutex</code></td><td><code>rooms[]</code> table, access controls</td><td>Prevents race conditions during room creation, joins, and deletions.</td></tr>
-          <tr><td><code>upload_mutex</code></td><td><code>upload_slots[2]</code> & FIFO queue</td><td>Guarantees atomic slot allocation and byte-budget enforcement.</td></tr>
-          <tr><td><code>transfer_mutex</code></td><td><code>transfer_list</code></td><td>Guarantees correct routing of file chunks to designated targets.</td></tr>
-          <tr><td>Per-Room History Lock</td><td>Linked list / ring buffer of room messages</td><td>Permits parallel message insertion across distinct rooms.</td></tr>
-        </table>
       </div>
     </div>
 
-    <!-- TAB 4: Wire Protocol -->
-    <div id="tab-protocol" class="tab-content">
+    <!-- ==================== TAB 3: CONCURRENCY & MUTEXES ==================== -->
+    <div id="tab-theory-concurrency" class="tab-content">
       <div class="card">
-        <h2>📡 Wire Protocol Specification</h2>
+        <h2>🔒 Concurrency, POSIX Threads & Locking Theory</h2>
+
         <div class="callout">
-          <div class="callout-title">Design Philosophy: IRC-Style Human-Readable Text Protocol</div>
-          Every frame is an ASCII line delimited by pipe characters (<code>|</code>) and terminated with a newline (<code>
-</code>). Format: <code>TYPE|arg1|arg2|...
-</code>. This enables transparent inspection with <code>netcat</code>, Wireshark, and <code>tcpdump</code>.
+          <div class="callout-title">Why POSIX Threads on the Server?</div>
+          Each connected client on the server has independent state, blocking network operations, and bursty message patterns. Spawning a lightweight POSIX thread (<code class="inline">pthread_create</code>) per connection provides isolated execution stacks while sharing the process address space for instant, zero-copy data routing between users.
         </div>
 
-        <h3>Protocol Command Reference</h3>
+        <h3>1. Thread Detach Policy (<code class="inline">pthread_detach</code>)</h3>
+        <p>In standard POSIX threading, a terminated thread remains in a zombie state until another thread calls <code class="inline">pthread_join()</code> to collect its return value, leaking thread stack memory if left unjoined. In ConnectHub, the server calls <code class="inline">pthread_detach(pthread_self())</code> immediately upon thread entry in <code class="inline">handle_client()</code>. This tells the Linux kernel scheduler to automatically reclaim all thread descriptor and stack memory as soon as the thread exits.</p>
+
+        <h3>2. The 6 Mutex Domains & Data Invariants</h3>
         <table>
-          <tr><th>Command</th><th>Direction</th><th>Wire Format Syntax</th><th>Purpose</th></tr>
-          <tr><td><code>LOGIN</code></td><td>Client → Server</td><td><code>LOGIN|username|password</code></td><td>Submits login request.</td></tr>
-          <tr><td><code>LOGIN_OK</code></td><td>Server → Client</td><td><code>LOGIN_OK|username</code></td><td>Confirms authentication & triggers history replay.</td></tr>
-          <tr><td><code>PUBLIC</code></td><td>Both</td><td><code>PUBLIC|room|sender|text|time</code></td><td>Broadcasts public room message.</td></tr>
-          <tr><td><code>PRIVATE</code></td><td>Both</td><td><code>PRIVATE|sender|recipient|text|time</code></td><td>Direct 1-on-1 private message + sender echo.</td></tr>
-          <tr><td><code>TYPING</code></td><td>Both</td><td><code>TYPING|room|username</code></td><td>Triggers ephemeral typing indicator.</td></tr>
-          <tr><td><code>JOIN / LEAVE</code></td><td>Client → Server</td><td><code>JOIN|room[|pw]</code> / <code>LEAVE</code></td><td>Switches room; leaves notify old & new rooms.</td></tr>
-          <tr><td><code>CREATE_ROOM</code></td><td>Client → Server</td><td><code>CREATE_ROOM|name|title|desc|pw</code></td><td>Creates custom room with optional password.</td></tr>
-          <tr><td><code>FILE_REQUEST</code></td><td>Client → Server</td><td><code>FILE_REQUEST|filename|size|target</code></td><td>Requests file upload slot.</td></tr>
-          <tr><td><code>FILE_GRANTED</code></td><td>Server → Client</td><td><code>FILE_GRANTED|sender|name|token|size</code></td><td>Grants upload slot with random secret token.</td></tr>
-          <tr><td><code>FILE_OFFER</code></td><td>Server → Client</td><td><code>FILE_OFFER|sender|name|size|target</code></td><td>Offers file to recipient(s).</td></tr>
-          <tr><td><code>FILE_ACCEPT</code></td><td>Client → Server</td><td><code>FILE_ACCEPT|sender|filename</code></td><td>Recipient accepts file offer.</td></tr>
-          <tr><td><code>FILE_DATA</code></td><td>Both</td><td><code>FILE_DATA|name|token|base64_chunk</code></td><td>Base64 encoded binary chunk stream (~2KB binary).</td></tr>
-          <tr><td><code>FILE_END</code></td><td>Both</td><td><code>FILE_END|name</code></td><td>Completes file transfer & triggers atomic rename.</td></tr>
+          <tr><th>Mutex</th><th>Guarded Structure</th><th>Critical Section Invariant</th></tr>
+          <tr><td><code class="inline">client_mutex</code></td><td><code class="inline">clients[]</code> linked list & active count</td><td>Prevents two simultaneous logins from claiming the same username or corrupting the global client pointer list.</td></tr>
+          <tr><td><code class="inline">user_mutex</code></td><td><code class="inline">users[]</code> credentials table</td><td>Guarantees thread-safe account lookup, runtime user registration, and password hashing against <code class="inline">config/users.cred</code>.</td></tr>
+          <tr><td><code class="inline">room_mutex</code></td><td><code class="inline">rooms[]</code> table & access lists</td><td>Prevents race conditions when multiple users create, join, or delete rooms concurrently.</td></tr>
+          <tr><td><code class="inline">upload_mutex</code></td><td><code class="inline">upload_slots[2]</code> & FIFO queue</td><td>Atomically enforces maximum concurrent uploads (2) and active byte budgets (1 MiB).</td></tr>
+          <tr><td><code class="inline">transfer_mutex</code></td><td><code class="inline">transfer_list</code> active offers</td><td>Maps active transfers from sender to recipient so file data chunks route accurately.</td></tr>
+          <tr><td>Per-Room Locks</td><td>Per-room message ring buffer</td><td>Allows simultaneous chat messaging in different rooms without global lock contention.</td></tr>
         </table>
+
+        <h3>3. Deadlock Prevention: The "Never Hold Lock During send()" Rule</h3>
+        <div class="callout-gold">
+          <div class="callout-title">How Deadlocks Happen & How ConnectHub Prevents Them</div>
+          <p>A classic concurrency deadlock occurs when Thread A holds Lock 1 and waits for Lock 2, while Thread B holds Lock 2 and waits for Lock 1 (Cyclic Wait).</p>
+          <p>In network servers, a more subtle deadlock occurs: if Thread A locks <code class="inline">client_mutex</code> and calls <code class="inline">send()</code> on Client B's socket, and Client B's TCP buffer is full, <code class="inline">send()</code> blocks. While Thread A is blocked waiting for network I/O, no other client thread can log in, log out, or send messages because <code class="inline">client_mutex</code> is held!</p>
+          <p><strong>ConnectHub's Snapshot Pattern:</strong></p>
+          <pre>
+// 1. Acquire mutex lock
+pthread_mutex_lock(&client_mutex);
+
+// 2. Take local stack snapshot of recipient socket descriptors
+int target_fds[MAX_CLIENTS];
+int count = 0;
+for (Client *curr = client_head; curr; curr = curr->next) {
+    if (strcmp(curr->current_room, target_room) == 0) {
+        target_fds[count++] = curr->sockfd;
+    }
+}
+
+// 3. RELEASE MUTEX IMMEDIATELY
+pthread_mutex_unlock(&client_mutex);
+
+// 4. Perform network I/O outside critical section
+for (int i = 0; i < count; i++) {
+    send(target_fds[i], message, strlen(message), 0);
+}
+          </pre>
+        </div>
       </div>
     </div>
 
-    <!-- TAB 5: File Subsystem -->
-    <div id="tab-files" class="tab-content">
+    <!-- ==================== TAB 4: SELECT & TERMIOS ==================== -->
+    <div id="tab-theory-io" class="tab-content">
+      <div class="card">
+        <h2>⚡ I/O Multiplexing (<code class="inline">select()</code>) & Terminal Raw Mode (<code class="inline">termios</code>)</h2>
+
+        <div class="callout">
+          <div class="callout-title">Why Single-Threaded select() on the Client?</div>
+          Writing a multi-threaded terminal client often causes severe UI corruption: if the background network thread prints an incoming message while the user is typing, the terminal cursor jumps and mangles the input box. Using a single-threaded <code class="inline">select()</code> loop eliminates the need for display locks while keeping the interface 100% non-blocking and responsive.
+        </div>
+
+        <h3>1. How <code class="inline">select()</code> Multiplexing Works</h3>
+        <p>The <code class="inline">select()</code> system call monitors multiple file descriptors simultaneously to determine if any are ready for reading, writing, or have exceptional conditions.</p>
+        <div class="flow-diagram">
+                   +---------------------------------------------+
+                   |  select(maxfd + 1, &rfds, NULL, NULL, &tv)   |
+                   +----------------------+----------------------+
+                                          |
+                      Blocks until an event occurs or 100ms expires
+                                          |
+             +----------------------------+----------------------------+
+             |                                                         |
+             v                                                         v
+   FD_ISSET(STDIN_FILENO)                                     FD_ISSET(sockfd)
+   Keyboard keystroke typed!                                  Server data arrived!
+   -> read_from_stdin()                                       -> read_from_server()
+   -> Updates input buffer / runs slash cmd                   -> Parses message & appends to chat
+             |                                                         |
+             +----------------------------+----------------------------+
+                                          |
+                                          v
+                              Timeout (100ms tick)
+                              -> files_try_send_chunk() (streams file slices)
+                              -> clears expired typing indicators
+                              -> tui_draw() (refreshes terminal display)
+        </div>
+
+        <h3>2. Terminal Raw Mode with <code class="inline">termios.h</code></h3>
+        <p>By default, Linux terminals operate in <strong>canonical mode (cooked mode) with echo</strong>:</p>
+        <ul>
+          <li>Input is buffered line-by-line by the kernel TTY line-discipline until the user presses Enter.</li>
+          <li>Keystrokes are automatically echoed to stdout.</li>
+        </ul>
+        <p>ConnectHub disables canonical mode in <code class="inline">client/tui.c</code>:</p>
+        <pre>
+struct termios raw;
+tcgetattr(STDIN_FILENO, &orig_termios); // Save original settings
+raw = orig_termios;
+raw.c_lflag &= ~(ICANON | ECHO);        // Disable line buffering & auto-echo
+raw.c_cc[VMIN] = 1;                     // Read returns immediately with 1 char
+raw.c_cc[VTIME] = 0;                    // No read timeout
+tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+        </pre>
+        <p>This gives ConnectHub full control over every keystroke, enabling:</p>
+        <ol style="margin-left: 20px;">
+          <li><strong>Password Masking:</strong> Printing <code class="inline">*</code> instead of typed characters during login.</li>
+          <li><strong>Arrow-Key History:</strong> Intercepting ANSI escape sequences (<code class="inline">\033[A</code> / <code class="inline">\033[B</code>) to scroll through past commands.</li>
+          <li><strong>Live Typing Indicators:</strong> Emitting typing notifications as soon as any key is touched.</li>
+        </ol>
+      </div>
+    </div>
+
+    <!-- ==================== TAB 5: CRYPTO & ENCODING ==================== -->
+    <div id="tab-theory-crypto" class="tab-content">
+      <div class="card">
+        <h2>🔑 In-House Cryptography (SHA-256) & Base64 Encoding</h2>
+
+        <div class="callout">
+          <div class="callout-title">Zero Dependency Cryptography</div>
+          Rather than linking heavy external libraries like OpenSSL or libcrypto, ConnectHub implements SHA-256 and Base64 entirely from scratch in C, demonstrating pure systems-level algorithmic understanding.
+        </div>
+
+        <h3>1. Step-by-Step SHA-256 Algorithm (NIST FIPS 180-4)</h3>
+        <ol style="margin-left: 20px; line-height: 1.8;">
+          <li><strong>Message Padding:</strong> The input string is padded so its bit length is congruent to $448 \pmod{512}$. First, a single <code class="inline">1</code> bit (<code class="inline">0x80</code>) is appended, followed by <code class="inline">0</code> bits. Finally, a 64-bit big-endian integer representing the original message length in bits is appended, making the total block size a multiple of 512 bits.</li>
+          <li><strong>Initialization:</strong> Eight 32-bit state registers ($H_0 \dots H_7$) are initialized with the fractional parts of the square roots of the first 8 prime numbers (2 to 19).</li>
+          <li><strong>Message Schedule Expansion:</strong> Each 512-bit block is expanded into 64 32-bit words ($W_0 \dots W_{63}$) using bitwise rotations and XOR operations ($\sigma_0, \sigma_1$).</li>
+          <li><strong>64 Compression Rounds:</strong> The 8 state registers are scrambled through 64 rounds using round constants $K_t$ (cube roots of the first 64 primes) and bitwise functions:
+            <ul>
+              <li>$\text{Ch}(e, f, g) = (e \land f) \oplus (\neg e \land g)$</li>
+              <li>$\text{Maj}(a, b, c) = (a \land b) \oplus (a \land c) \oplus (b \land c)$</li>
+              <li>$\Sigma_0(a) = \text{ROTR}^2(a) \oplus \text{ROTR}^{13}(a) \oplus \text{ROTR}^{22}(a)$</li>
+              <li>$\Sigma_1(e) = \text{ROTR}^6(e) \oplus \text{ROTR}^{11}(e) \oplus \text{ROTR}^{25}(e)$</li>
+            </ul>
+          </li>
+          <li><strong>Digest Output:</strong> The resulting state registers are concatenated to produce a 256-bit (64-character hexadecimal) hash digest.</li>
+        </ol>
+
+        <h3>2. Base64 Encoding Bit-Math Mechanics</h3>
+        <p>Because the wire protocol is line-oriented ASCII using <code class="inline">|</code> and <code class="inline">\n</code> delimiters, transmitting raw binary files (which contain arbitrary <code class="inline">0x00</code>, <code class="inline">0x7C</code>, and <code class="inline">0x0A</code> bytes) would corrupt protocol parsing. Base64 translates 3 binary bytes (24 bits) into 4 safe ASCII characters (6 bits each):</p>
+        <div class="flow-diagram">
+Binary Bytes:   [   Byte 0   ]   [   Byte 1   ]   [   Byte 2   ]
+Bit Stream:     [ 7 6 5 4 3 2 ] [ 1 0 7 6 5 4 ] [ 3 2 1 0 7 6 ] [ 5 4 3 2 1 0 ]
+6-bit Chunks:   [   Chunk 0   ] [   Chunk 1   ] [   Chunk 2   ] [   Chunk 3   ]
+Base64 Chars:   'A'-'Z', 'a'-'z', '0'-'9', '+', '/' (with '=' padding)
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== TAB 6: FILE SUBSYSTEM ==================== -->
+    <div id="tab-file-subsystem" class="tab-content">
       <div class="card">
         <h2>📦 Token-Guarded Chunked File Transfer Subsystem</h2>
+
         <div class="callout">
-          <div class="callout-title">End-to-End File Transfer Workflow</div>
-          <ol style="margin-left: 20px; line-height: 1.8;">
-            <li><strong>Sender Requests Transfer:</strong> Sends <code>FILE_REQUEST|doc.pdf|1048576|bob</code>.</li>
-            <li><strong>Server Issues Secret Token:</strong> If an upload slot is open, server returns <code>FILE_GRANTED|alice|doc.pdf|a8f9c2d1|1048576</code>.</li>
-            <li><strong>Server Notifies Recipient:</strong> Bob receives <code>FILE_OFFER|alice|doc.pdf|1048576|bob</code>.</li>
-            <li><strong>Recipient Accepts:</strong> Bob types <code>/accept 1</code>, emitting <code>FILE_ACCEPT|alice|doc.pdf</code>.</li>
-            <li><strong>Chunk Streaming:</strong> Alice reads 2048-byte binary slices, Base64 encodes them (~2732 chars), and streams <code>FILE_DATA|doc.pdf|a8f9c2d1|&lt;base64&gt;</code>.</li>
-            <li><strong>Token Verification:</strong> Server verifies the token on every single chunk before forwarding to Bob.</li>
-            <li><strong>Assembly & Atomic Rename:</strong> Bob writes chunks into <code>files/doc.pdf.tmp</code>. On <code>FILE_END</code>, the temporary file is renamed to <code>files/doc.pdf</code>.</li>
-          </ol>
+          <div class="callout-title">Why Server-Mediated File Transfer?</div>
+          Direct peer-to-peer file transfer requires hole-punching and complex NAT traversal. ConnectHub routes file chunks through the server, allowing file transfers across different subnets while enforcing strict access control, token verification, and server resource limits.
         </div>
 
-        <h3>Rate Limiting & Safety Parameters</h3>
+        <h3>The 7-Step Transfer Protocol Sequence</h3>
+        <div class="flow-diagram">
+Client 1 (Sender)                     Server (chatserver)                  Client 2 (Receiver)
+       |                                       |                                    |
+       |  1. FILE_REQUEST|file.pdf|size|target |                                    |
+       |-------------------------------------->|                                    |
+       |                                       | (Checks slots & budget:            |
+       |                                       |  Allocates upload slot,            |
+       |                                       |  Mints random 16-hex TOKEN)        |
+       |                                       |                                    |
+       |  2. FILE_GRANTED|alice|file|TOKEN|size|  3. FILE_OFFER|alice|file|size|bob  |
+       |<--------------------------------------|----------------------------------->|
+       |                                       |                                    |
+       |                                       |                                    | (Bob types /accept 1)
+       |                                       |  4. FILE_ACCEPT|alice|file.pdf     |
+       |                                       |<-----------------------------------|
+       |                                       |                                    |
+       |  5. FILE_DATA|file|TOKEN|<b64_chunk>  |                                    |
+       |-------------------------------------->| (Verifies TOKEN matches slot!)     |
+       |                                       |  6. FILE_DATA|alice|file|<b64>     |
+       |                                       |----------------------------------->| (Appends to file.tmp)
+       |                                       |                                    |
+       |  7. FILE_END|file.pdf                 |                                    |
+       |-------------------------------------->|                                    |
+       |                                       |  8. FILE_END|alice|file.pdf        |
+       |                                       |----------------------------------->| (Renames file.tmp
+       |                                       |                                    |  -> files/file.pdf)
+        </div>
+
+        <h3>Rate Limiting & Safety Parameters in <code class="inline">shared/constants.h</code></h3>
         <table>
-          <tr><th>Parameter</th><th>Value in constants.h</th><th>Design Justification</th></tr>
-          <tr><td><code>MAX_CONCURRENT_UPLOADS</code></td><td>2 simultaneous uploads</td><td>Prevents file I/O from saturating server socket buffers.</td></tr>
-          <tr><td><code>MAX_TOTAL_UPLOAD_BYTES</code></td><td>1 MiB active byte budget</td><td>Limits total in-flight buffer memory footprint.</td></tr>
-          <tr><td><code>MAX_QUEUE_DEPTH</code></td><td>16 requests</td><td>Bounded FIFO queue prevents memory exhaustion from burst requests.</td></tr>
-          <tr><td><code>FILE_CHUNK_SIZE</code></td><td>2048 bytes (2 KB)</td><td>Base64 encoding produces ~2732 bytes, safely inside 4096-byte BUFFER_SIZE.</td></tr>
-          <tr><td><code>MAX_FILE_SIZE</code></td><td>64 MiB</td><td>Upper safety threshold preventing disk overflow.</td></tr>
+          <tr><th>Constant</th><th>Value</th><th>System Protection Rationale</th></tr>
+          <tr><td><code class="inline">MAX_CONCURRENT_UPLOADS</code></td><td>2 uploads</td><td>Prevents disk I/O and socket buffer saturation on the server.</td></tr>
+          <tr><td><code class="inline">MAX_TOTAL_UPLOAD_BYTES</code></td><td>1 MiB</td><td>Active memory budget limit for all concurrent in-flight chunks.</td></tr>
+          <tr><td><code class="inline">MAX_QUEUE_DEPTH</code></td><td>16 requests</td><td>Bounded FIFO queue depth to prevent memory exhaustion from burst requests.</td></tr>
+          <tr><td><code class="inline">FILE_CHUNK_SIZE</code></td><td>2048 bytes (2 KB)</td><td>Encodes to 2732 Base64 bytes, fitting safely within 4096-byte <code class="inline">BUFFER_SIZE</code>.</td></tr>
+          <tr><td><code class="inline">MAX_FILE_SIZE</code></td><td>64 MiB</td><td>Upper safety limit to prevent server and client disk overflow.</td></tr>
         </table>
       </div>
     </div>
 
-    <!-- TAB 6: Demo Script -->
-    <div id="tab-demo" class="tab-content">
+    <!-- ==================== TAB 7: HOW TO TEST ==================== -->
+    <div id="tab-how-to-test" class="tab-content">
       <div class="card">
-        <h2>🚀 Live Demo Walkthrough (Step-by-Step Script)</h2>
-        <p style="margin-bottom: 20px; color: var(--text-muted);">Execute these steps in order to deliver a flawless, high-impact presentation in 5 minutes:</p>
+        <h2>🧪 Step-by-Step Feature Testing Manual</h2>
+        <p>Follow these hands-on steps to test and verify every feature of ConnectHub:</p>
 
-        <div class="step-item">
+        <div class="step-box">
           <div class="step-num">1</div>
-          <div class="step-body">
-            <div class="step-title">Terminal 1: Clean Build Verification</div>
+          <div class="step-content">
+            <div class="step-header">Compilation & Clean Build Verification</div>
             <pre>make clean && make</pre>
-            <p><strong>Highlight to Panel:</strong> Show that compilation finishes instantly with <code>-Wall -Wextra</code> with zero warnings and zero external library dependencies.</p>
+            <p><strong>What to verify:</strong> Both <code class="inline">bin/chatclient</code> and <code class="inline">bin/chatserver</code> compile with <code class="inline">-Wall -Wextra -O2</code> without compiler errors or missing dependencies.</p>
           </div>
         </div>
 
-        <div class="step-item">
+        <div class="step-box">
           <div class="step-num">2</div>
-          <div class="step-body">
-            <div class="step-title">Terminal 1: Launch Concurrent TCP Server</div>
+          <div class="step-content">
+            <div class="step-header">Start the Server</div>
             <pre>./bin/chatserver 8080</pre>
-            <p><strong>Highlight to Panel:</strong> Server initializes logging subsystem, user credential table, #general room, and enters <code>select()</code> accept loop.</p>
+            <p><strong>What to verify:</strong> Output shows <code class="inline">[SERVER] Listening on port 8080</code>. Inspect <code class="inline">logs/server.log</code> to verify logger initialization.</p>
           </div>
         </div>
 
-        <div class="step-item">
+        <div class="step-box">
           <div class="step-num">3</div>
-          <div class="step-body">
-            <div class="step-title">Terminal 2: Connect User 'Alice'</div>
-            <pre>./bin/chatclient 127.0.0.1 8080</pre>
-            <p>Enter username: <code>alice</code> | Password: <code>alice</code>. Note password masking with asterisks and automatic landing in #general with history replay.</p>
+          <div class="step-content">
+            <div class="step-header">Connect Clients (Alice & Bob)</div>
+            <p>Open two separate terminal windows:</p>
+            <pre># Terminal 2 (Alice):
+./bin/chatclient 127.0.0.1 8080
+# Type username: alice | password: alice
+
+# Terminal 3 (Bob):
+./bin/chatclient 127.0.0.1 8080
+# Type username: bob | password: bob</pre>
+            <p><strong>What to verify:</strong> Password input is masked with asterisks. Alice's sidebar immediately shows Bob under online users upon Bob's connection.</p>
           </div>
         </div>
 
-        <div class="step-item">
+        <div class="step-box">
           <div class="step-num">4</div>
-          <div class="step-body">
-            <div class="step-title">Terminal 3: Connect User 'Bob'</div>
-            <pre>./bin/chatclient 127.0.0.1 8080</pre>
-            <p>Enter username: <code>bob</code> | Password: <code>bob</code>. Show that Alice's right-hand sidebar immediately updates with Bob's online presence!</p>
+          <div class="step-content">
+            <div class="step-header">Test Public Chat & Real-Time Typing Indicators</div>
+            <p>In Alice's terminal, type letters without pressing Enter.</p>
+            <p><strong>What to verify:</strong> Bob's screen immediately displays <code class="inline">[typing] alice is typing...</code>. Press Enter in Alice's terminal; message appears in `#general` with a timestamp across both terminals.</p>
           </div>
         </div>
 
-        <div class="step-item">
+        <div class="step-box">
           <div class="step-num">5</div>
-          <div class="step-body">
-            <div class="step-title">Terminals 2 & 3: Public Messaging & Live Typing Indicator</div>
-            <p>Alice starts typing without pressing enter. Show Bob's screen: <code>[typing] alice is typing...</code>. Alice presses Enter to send public message.</p>
+          <div class="step-content">
+            <div class="step-header">Test Direct Private Messages (DM)</div>
+            <p>In Alice's terminal, run:</p>
+            <pre>/msg bob Hey Bob, this is a private direct message!</pre>
+            <p><strong>What to verify:</strong> Message is delivered exclusively to Bob with a <code class="inline">[PM]</code> indicator, and Alice receives an echo copy. Other connected clients in `#general` do not receive it.</p>
           </div>
         </div>
 
-        <div class="step-item">
+        <div class="step-box">
           <div class="step-num">6</div>
-          <div class="step-body">
-            <div class="step-title">Terminal 2: Direct 1-on-1 Private Message</div>
-            <pre>/msg bob Secret meeting at room 402!</pre>
-            <p>Shows <code>[PM]</code> routing directly to Bob with sender echo.</p>
+          <div class="step-content">
+            <div class="step-header">Test Password-Protected Rooms & History Replay</div>
+            <pre># In Bob's terminal:
+/createroom dev Developer Team|Secret Room|dev123
+/join dev dev123
+Hello dev team message 1!
+Hello dev team message 2!
+
+# In Alice's terminal:
+/join dev dev123</pre>
+            <p><strong>What to verify:</strong> Alice receives the past messages replayed automatically upon joining `#dev`.</p>
           </div>
         </div>
 
-        <div class="step-item">
+        <div class="step-box">
           <div class="step-num">7</div>
-          <div class="step-body">
-            <div class="step-title">Terminal 3: Room Creation, Access Control & History</div>
-            <pre>/createroom dev Developer Room|Secret projects|dev123</pre>
-            <p>Bob joins with <code>/join dev dev123</code> and sends messages. Alice joins afterwards with <code>/join dev dev123</code> and automatically receives the past 50 messages replayed!</p>
+          <div class="step-content">
+            <div class="step-header">Test Token-Guarded File Transfer</div>
+            <pre># In Alice's terminal:
+/sendfile @bob Makefile
+
+# In Bob's terminal:
+# Prompt appears: [1] alice offers 'Makefile' (X bytes)... /accept 1
+/accept 1</pre>
+            <p><strong>What to verify:</strong> File is streamed in chunks and saved to <code class="inline">files/Makefile</code>. Verify integrity: <code class="inline">sha256sum Makefile files/Makefile</code> (both hashes will match!).</p>
           </div>
         </div>
 
-        <div class="step-item">
+        <div class="step-box">
           <div class="step-num">8</div>
-          <div class="step-body">
-            <div class="step-title">Terminal 2 & 3: Token-Guarded File Transfer</div>
-            <pre>/sendfile @bob Makefile</pre>
-            <p>Bob sees offer: <code>[1] alice offers 'Makefile'... /accept 1</code>. Bob types <code>/accept 1</code>. File is streamed in Base64 chunks and saved intact to <code>files/Makefile</code>.</p>
+          <div class="step-content">
+            <div class="step-header">Test Admin Dashboard & Moderation</div>
+            <pre># Terminal 4 (Admin):
+./bin/chatclient --admin --pass admin123
+
+/stats                          # View message and transfer counters
+/announce Maintenance in 10m   # Broadcasts global banner
+/accounts                      # Lists registered user accounts
+/createuser charlie pass123    # Registers new user at runtime</pre>
           </div>
         </div>
 
-        <div class="step-item">
+        <div class="step-box">
           <div class="step-num">9</div>
-          <div class="step-body">
-            <div class="step-title">Terminal 4: Admin Control Dashboard</div>
-            <pre>./bin/chatclient --admin --pass admin123</pre>
-            <p>Demonstrate <code>/stats</code>, <code>/announce Defense presentation in progress</code>, and <code>/accounts</code>.</p>
+          <div class="step-content">
+            <div class="step-header">Automated Integration Test Suite</div>
+            <pre>python3 tests/smoke.py</pre>
+            <p><strong>What to verify:</strong> The automated test script spins up socket clients, tests authentication, messaging, room switching, file transfers with SHA-256 digest validation, and outputs <code class="inline">SMOKE TEST PASSED</code>.</p>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- TAB 7: Defense Q&A -->
-    <div id="tab-viva" class="tab-content">
+    <!-- ==================== TAB 8: CONCEPT QA ==================== -->
+    <div id="tab-qa" class="tab-content">
       <div class="card">
-        <h2>💡 Top 20 Defense & Viva Questions with Flawless Answers</h2>
-        <input type="text" class="search-input" placeholder="🔍 Search defense questions (e.g., select, thread, deadlock, sha256, tcp)..." onkeyup="filterQuestions(this.value)">
+        <h2>💡 Deep Dive Concept Q&A (Searchable Knowledge Base)</h2>
+        <input type="text" class="search-bar" placeholder="🔍 Search concepts (e.g., select, mutex, deadlock, sha256, tcp, base64, termios)..." onkeyup="filterQuestions(this.value)">
 
-        <div id="qa-container">
-          <!-- Questions will be rendered here -->
-        </div>
+        <div id="qa-list"></div>
       </div>
     </div>
 
-    <!-- TAB 8: Interactive Flashcards -->
-    <div id="tab-quiz" class="tab-content">
+    <!-- ==================== TAB 9: FLASHCARDS ==================== -->
+    <div id="tab-flashcards" class="tab-content">
       <div class="card">
-        <h2>⚡ Interactive Defense Flashcards & Concept Drill</h2>
-        <div class="quiz-box">
-          <div class="flashcard" onclick="revealAnswer()">
-            <div id="fc-question">Click 'Next Card' to start your viva drill!</div>
-            <div id="fc-answer" class="flashcard-ans"></div>
+        <h2>⚡ Interactive Concept Flashcards</h2>
+        <div class="flashcard-container">
+          <div class="flashcard-box" onclick="revealAnswer()">
+            <div id="fc-q" class="flashcard-q">Loading flashcard...</div>
+            <div id="fc-a" class="flashcard-a"></div>
           </div>
-          <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 10px;">(Click question box or 'Reveal Answer' to flip)</p>
-          <div class="quiz-controls">
-            <button class="btn btn-secondary" onclick="revealAnswer()">👁️ Reveal Answer</button>
-            <button class="btn" onclick="nextCard()">➡️ Next Card</button>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 10px;">(Click box or 'Reveal Answer' to flip)</p>
+          <div style="margin-top: 15px;">
+            <button class="fc-btn fc-btn-subtle" onclick="revealAnswer()">👁️ Reveal Answer</button>
+            <button class="fc-btn" onclick="prevCard()">⬅️ Previous</button>
+            <button class="fc-btn" onclick="nextCard()">Next ➡️</button>
           </div>
         </div>
       </div>
@@ -391,53 +621,53 @@
 
     const qaData = [
       {
-        q: "1. Why did you choose TCP instead of UDP for ConnectHub?",
-        a: "TCP is connection-oriented, reliable, and byte-stream based with guaranteed in-order delivery, retransmissions on packet loss, and built-in flow/congestion control. For a chat and file-sharing application, losing text packets or receiving file chunks out of sequence causes message corruption and invalid file checksums. UDP provides lower latency but lacks delivery guarantees, making TCP the industry standard for reliable text messaging and file transfer."
+        q: "Why use TCP instead of UDP for ConnectHub?",
+        a: "TCP is a connection-oriented, reliable byte-stream protocol guaranteeing in-order packet delivery, error checking, and flow/congestion control. For chat and file sharing, dropped packets or out-of-order delivery in UDP would mangle text and destroy binary files. UDP is suitable for loss-tolerant real-time video/gaming, while TCP is the standard for messaging."
       },
       {
-        q: "2. How does select() work, and why use it instead of multi-threading in the client?",
-        a: "select() is a synchronous I/O multiplexing system call that monitors multiple file descriptors (stdin and socket fd) using bitmasks (fd_set). It blocks until at least one descriptor is ready for reading/writing or a timeout occurs. Using select() on the client makes it single-threaded and eliminates all race conditions when rendering the ANSI terminal screen, while still allowing simultaneous handling of keyboard typing, incoming network packets, and background timer ticks."
+        q: "What is select() and why use it for the client?",
+        a: "select() is a synchronous I/O multiplexing system call that monitors multiple file descriptors (stdin and socket fd) using bitmasks (fd_set). It blocks until at least one descriptor is ready or a timeout occurs. Using select() makes the client single-threaded, avoiding race conditions when redrawing ANSI screens while simultaneously handling keyboard typing and incoming network packets."
       },
       {
-        q: "3. Explain how you prevent deadlocks in the multithreaded server.",
-        a: "Deadlocks are prevented through two primary architectural rules: (1) Never hold client_mutex while performing blocking I/O (such as broadcasting to other client sockets). Handlers copy the necessary socket file descriptors to a local array under lock, immediately release the mutex, and then call send(). (2) Strict hierarchical lock ordering is maintained when accessing multiple mutexes to prevent circular wait conditions."
+        q: "How does the server prevent deadlocks during broadcasts?",
+        a: "The server enforces the Snapshot Pattern: it never holds client_mutex while calling send(). If a slow client's TCP buffer fills up, a blocking send() would stall the entire server. Instead, handlers copy client socket descriptors to a stack array under lock, immediately release client_mutex, and then call send()."
       },
       {
-        q: "4. What is TCP stream fragmentation, and how did your wire protocol handle it?",
-        a: "TCP is a byte-stream protocol without intrinsic message boundaries; a single send() may be fragmented into multiple recv() chunks or combined with other messages. ConnectHub frames every command with a newline ('\n') delimiter. The client and server run an accumulator buffer loop that aggregates incoming bytes until a '\n' character is encountered, ensuring that only whole, discrete commands are parsed."
+        q: "What is TCP stream fragmentation and how is it handled?",
+        a: "TCP is a byte-stream protocol without intrinsic message boundaries. A single send() can arrive across multiple recv() calls or coalesce with other messages. ConnectHub frames every command with a newline ('\\n'). Both client and server run an accumulator buffer loop that aggregates incoming bytes until '\\n' is found before parsing."
       },
       {
-        q: "5. Why did you implement SHA-256 from scratch rather than linking OpenSSL?",
-        a: "Writing SHA-256 from scratch in shared/sha256.c strictly adhered to our project goal of zero external library dependencies and deep systems programming learning. It implements the NIST FIPS 180-4 standard using 64 constant rounds, logical bitwise functions (Ch, Maj, Sigma), and 512-bit block padding, proving cryptographic hashing can be embedded natively without heavy dynamic libraries."
+        q: "Why is SHA-256 implemented from scratch?",
+        a: "Implementing SHA-256 in shared/sha256.c satisfies the project's zero-dependency requirement and demonstrates deep systems-level cryptographic understanding. It implements NIST FIPS 180-4 using 64 constant rounds, 512-bit message padding, and bitwise logical functions (Ch, Maj, Sigma)."
       },
       {
-        q: "6. How does the token-guarded file transfer mechanism protect against spoofing?",
-        a: "When a sender issues FILE_REQUEST, the server generates an unpredictable pseudo-random token tied to the allocated upload slot and transmits it via FILE_GRANTED. The sender must include this exact token in every FILE_DATA chunk. The server validates the token on every packet before forwarding it, ensuring unauthorized clients cannot inject corrupted chunks into another user's transfer."
+        q: "How does the token-based file transfer mechanism work?",
+        a: "When an upload slot is granted, the server generates an unpredictable pseudo-random token (make_token()) tied to the slot. The sender must include this token in every FILE_DATA chunk. The server verifies the token before forwarding, preventing unauthorized clients from injecting corrupted bytes into another user's transfer."
       },
       {
-        q: "7. Why is Base64 encoding required for file transfers in this protocol?",
-        a: "Our wire protocol is ASCII line-delimited, using '|' as field separators and '\n' as frame terminators. Raw binary files contain arbitrary 0x00 (null), 0x7C ('|'), and 0x0A ('\n') bytes. If transmitted raw, these bytes would corrupt protocol parsing. Base64 encodes 3 binary bytes into 4 safe ASCII characters, guaranteeing zero delimiter collisions."
+        q: "Why encode binary file chunks in Base64?",
+        a: "The wire protocol is ASCII line-delimited using '|' as field separators and '\\n' as frame terminators. Raw binary files contain null bytes (0x00), pipes (0x7C), and newlines (0x0A) that would corrupt protocol parsing. Base64 translates 3 raw binary bytes into 4 printable ASCII characters, guaranteeing zero delimiter collisions."
       },
       {
-        q: "8. How does raw terminal mode (termios) work in your client?",
-        a: "Standard terminal mode is canonical with echo, buffering keystrokes until Enter is pressed. Using tcgetattr() and tcsetattr(), we disable the ICANON and ECHO flags and set VMIN=1. This allows the client to intercept individual keystrokes in real time, enabling features like masked asterisks for passwords, arrow-key command history, and instant typing indicators."
+        q: "What is raw terminal mode (termios) and why is it used?",
+        a: "Linux terminals default to canonical mode with echo (buffering until Enter is pressed). By clearing ICANON and ECHO flags and setting VMIN=1, the client captures individual keystrokes immediately to support real-time typing indicators, arrow-key command history, and masked password entry."
       },
       {
-        q: "9. What happens during unexpected client disconnects (e.g., kill -9 or cable unplug)?",
-        a: "When a socket closes abruptly, the server's recv() call returns 0 (EOF) or -1 with ECONNRESET. The client thread exits its read loop and calls disconnect_cleanup(), which frees in-flight upload slots, removes pending offers, unlinks the client from the active array under client_mutex, updates the user list across the server, and notifies remaining room members."
+        q: "What happens during unexpected client disconnection?",
+        a: "When a socket closes abruptly, the server's recv() returns 0 (EOF) or -1. The client thread exits its read loop and calls disconnect_cleanup(), which frees upload slots, removes pending offers, unlinks the client from the active array under client_mutex, and broadcasts an updated user list."
       },
       {
-        q: "10. What is the difference between select(), poll(), and epoll()?",
-        a: "select() uses fixed-size bitmasks (limited to FD_SETSIZE, usually 1024) and scans all descriptors with O(N) complexity. poll() removes the hardcoded descriptor limit by using an array of pollfd structures. epoll() is a Linux-specific event-driven API with O(1) complexity, ideal for tens of thousands of concurrent connections (C10K problem). For our scope of up to 128 clients on a LAN, select() is fully standard POSIX, highly portable, and extremely efficient."
+        q: "What is the difference between select(), poll(), and epoll()?",
+        a: "select() uses fixed-size bitmasks (limited to FD_SETSIZE, usually 1024) and scans all descriptors with O(N) complexity. poll() eliminates the descriptor limit with an array of structs. epoll() is a Linux-specific O(1) event-driven mechanism for high-scale concurrency (C10K problem). For our scope of up to 128 LAN clients, select() is standard POSIX, portable, and efficient."
       }
     ];
 
     function renderQA() {
-      const container = document.getElementById('qa-container');
+      const container = document.getElementById('qa-list');
       container.innerHTML = qaData.map((item, index) => `
         <div class="accordion-item">
           <div class="accordion-header" onclick="toggleAccordion(${index})">
-            <span>${item.q}</span>
+            <span><strong>${index + 1}.</strong> ${item.q}</span>
             <span class="arrow" id="arrow-${index}">▼</span>
           </div>
           <div class="accordion-content" id="content-${index}">
@@ -467,22 +697,27 @@
       });
     }
 
-    // Flashcard Logic
+    // Flashcards
     let currentCard = 0;
     function showCard(idx) {
       const card = qaData[idx];
-      document.getElementById('fc-question').innerText = card.q;
-      document.getElementById('fc-answer').innerText = card.a;
-      document.getElementById('fc-answer').style.display = 'none';
+      document.getElementById('fc-q').innerText = `${idx + 1}. ${card.q}`;
+      document.getElementById('fc-a').innerText = card.a;
+      document.getElementById('fc-a').style.display = 'none';
     }
 
     function revealAnswer() {
-      const ans = document.getElementById('fc-answer');
+      const ans = document.getElementById('fc-a');
       ans.style.display = ans.style.display === 'block' ? 'none' : 'block';
     }
 
     function nextCard() {
       currentCard = (currentCard + 1) % qaData.length;
+      showCard(currentCard);
+    }
+
+    function prevCard() {
+      currentCard = (currentCard - 1 + qaData.length) % qaData.length;
       showCard(currentCard);
     }
 
