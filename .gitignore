@@ -1,8 +1,35 @@
+# Compiled binaries and object files
 bin/
 build/
-logs/
-files/
 *.o
-*.tmp
+*.out
+
+# Runtime data & logs
+logs/
+*.log
+files/*
+!files/.gitkeep
+
+# Python cache & virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# LaTeX intermediate build artifacts
+*.aux
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.toc
+*.bbl
+*.blg
+
+# OS & Editor specific files
 .DS_Store
-.agents/
+.vscode/
+.idea/
+*.swp
+*~
