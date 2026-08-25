@@ -154,6 +154,20 @@ make clean
 
 ---
 
+## 🔑 Default Accounts & Test Credentials
+
+The server loads default credentials on startup from the `config/` directory. Use these pre-configured accounts for testing and verification:
+
+| Username | Password | Role | Configuration File | Direct Login Command |
+| :--- | :--- | :--- | :--- | :--- |
+| `alice` | `alice` | Standard User | `config/users.cred` | `./bin/chatclient --host 127.0.0.1 --port 8080 --user alice --pass alice` |
+| `bob` | `bob` | Standard User | `config/users.cred` | `./bin/chatclient --host 127.0.0.1 --port 8080 --user bob --pass bob` |
+| `admin` | `admin123` | Administrator | `config/admin.cred` | `./bin/chatclient --host 127.0.0.1 --port 8080 --admin --pass admin123` |
+
+> **Note:** Administrators can also register new user accounts at runtime using `/createuser <username> <password>` and reset passwords using `/resetpass <username> <new_password>`.
+
+---
+
 ## 💬 Command Reference
 
 ### Chat & Rooms

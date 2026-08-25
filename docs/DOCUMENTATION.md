@@ -53,7 +53,13 @@ Sender → Server → Recipient:
 3. Server mints a pseudo-random **upload token**, sends `FILE_GRANTED|sender|filename|TOKEN|size` to the sender, and forwards `FILE_OFFER|sender|filename|size|target` to the recipient.
 4. Recipient responds: `/accept <n>` → `FILE_ACCEPT` or `/reject <n>` → `FILE_REJECT`.
 5. On acceptance, sender streams `FILE_DATA|filename|TOKEN|<base64_chunk>` in 2048-byte binary chunks (~2732 Base64 characters). Server verifies the token on every chunk before forwarding.
-6. Sender emits `FILE_END|filename`. Receiver reassembles chunks into `files/<filename>.tmp` and atomically renames it to `files/<filename>` upon completion.
+### 2.5 Default Accounts & Test Credentials
+The server pre-loads default credentials on startup:
+| Username | Password | Role | Configuration File | Purpose / Permissions |
+| :--- | :--- | :--- | :--- | :--- |
+| `alice` | `alice` | Standard User | `config/users.cred` | General messaging, file transfer, room creation |
+| `bob` | `bob` | Standard User | `config/users.cred` | General messaging, file transfer, room creation |
+| `admin` | `admin123` | Administrator | `config/admin.cred` | Access to `/stats`, `/announce`, `/kick`, `/createuser`, `/deleteuser`, `/resetpass` |
 
 ---
 
