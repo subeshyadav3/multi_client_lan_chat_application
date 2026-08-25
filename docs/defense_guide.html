@@ -469,113 +469,332 @@ Client 1 (Sender: subesh)            Server (chatserver)                  Client
     <!-- ==================== TAB 7: HOW TO TEST ==================== -->
     <div id="tab-how-to-test" class="tab-content">
       <div class="card">
-        <h2>🧪 Step-by-Step Feature Testing Manual</h2>
-        <p>Follow these hands-on steps to test and verify every feature of ConnectHub:</p>
+        <h2>🧪 Exhaustive Testing Manual (All Features, Variants & Edge Cases)</h2>
+        <p>This manual covers how to test and verify every single feature, protocol flow, security check, concurrency limit, and edge case across 10 structured categories:</p>
 
+        <!-- Category 1 -->
+        <h3>1. Compilation & Binary Verification</h3>
         <div class="step-box">
-          <div class="step-num">1</div>
+          <div class="step-num">1.1</div>
           <div class="step-content">
-            <div class="step-header">Compilation & Clean Build Verification</div>
+            <div class="step-header">Clean Build from Source</div>
             <pre>make clean && make</pre>
-            <p><strong>What to verify:</strong> Both <code class="inline">bin/chatclient</code> and <code class="inline">bin/chatserver</code> compile with <code class="inline">-Wall -Wextra -O2</code> without compiler errors or missing dependencies.</p>
+            <p><strong>Verification:</strong> Compiles with <code class="inline">-Wall -Wextra -O2 -g</code> and links without errors. Check that <code class="inline">bin/chatclient</code> and <code class="inline">bin/chatserver</code> are created.</p>
+          </div>
+        </div>
+
+        <!-- Category 2 -->
+        <h3>2. Network Connectivity & LAN Variants</h3>
+        <div class="step-box">
+          <div class="step-num">2.1</div>
+          <div class="step-content">
+            <div class="step-header">Variant A: Localhost Single-Machine Testing</div>
+            <pre># Terminal 1: Server
+./bin/chatserver 8080
+
+# Terminal 2: Client
+./bin/chatclient 127.0.0.1 8080</pre>
           </div>
         </div>
 
         <div class="step-box">
-          <div class="step-num">2</div>
+          <div class="step-num">2.2</div>
           <div class="step-content">
-            <div class="step-header">Start the Server</div>
-            <pre>./bin/chatserver 8080</pre>
-            <p><strong>What to verify:</strong> Output shows <code class="inline">[SERVER] Listening on port 8080</code>. Inspect <code class="inline">logs/server.log</code> to verify logger initialization.</p>
+            <div class="step-header">Variant B: Multi-Laptop LAN / Wi-Fi Testing</div>
+            <pre># 1. On Server Laptop (Linux): Find LAN IP
+hostname -I    # e.g., 192.168.1.45
+./bin/chatserver 8080
+
+# 2. On Client Laptop (Same Wi-Fi network):
+./bin/chatclient 192.168.1.45 8080</pre>
+            <p><strong>Note:</strong> If connection times out, allow port 8080 through the firewall: <code class="inline">sudo ufw allow 8080/tcp</code>.</p>
           </div>
         </div>
 
         <div class="step-box">
-          <div class="step-num">3</div>
+          <div class="step-num">2.3</div>
           <div class="step-content">
-            <div class="step-header">Connect Clients (Subesh & Saroj)</div>
-            <p>Open two separate terminal windows:</p>
-            <pre># Terminal 2 (Subesh):
-./bin/chatclient 127.0.0.1 8080
-# Type username: subesh | password: subesh
-
-# Terminal 3 (Saroj):
-./bin/chatclient 127.0.0.1 8080
-# Type username: saroj | password: saroj</pre>
-            <p><strong>What to verify:</strong> Password input is masked with asterisks. Subesh's sidebar immediately shows Saroj under online users upon Saroj's connection.</p>
+            <div class="step-header">Variant C: Custom Port Testing</div>
+            <pre>./bin/chatserver 9090
+./bin/chatclient 127.0.0.1 9090</pre>
           </div>
         </div>
 
         <div class="step-box">
-          <div class="step-num">4</div>
+          <div class="step-num">2.4</div>
           <div class="step-content">
-            <div class="step-header">Test Public Chat & Real-Time Typing Indicators</div>
-            <p>In Subesh's terminal, type letters without pressing Enter.</p>
-            <p><strong>What to verify:</strong> Saroj's screen immediately displays <code class="inline">[typing] subesh is typing...</code>. Press Enter in Subesh's terminal; message appears in `#general` with a timestamp across both terminals.</p>
+            <div class="step-header">Variant D: Raw Netcat Connection (Proves Wire Protocol Transparency)</div>
+            <pre># Connect raw socket using netcat:
+nc 127.0.0.1 8080
+
+# Type manually and press Enter:
+LOGIN|subesh|subesh
+
+# Server immediately replies in plaintext:
+LOGIN_OK|subesh
+USERS|subesh:1</pre>
+            <p><strong>Verification:</strong> Confirms that the wire protocol is 100% human-readable ASCII without binary encapsulation.</p>
+          </div>
+        </div>
+
+        <!-- Category 3 -->
+        <h3>3. Authentication & Security Edge Cases</h3>
+        <div class="step-box">
+          <div class="step-num">3.1</div>
+          <div class="step-content">
+            <div class="step-header">Valid Standard Login</div>
+            <p>Launch <code class="inline">./bin/chatclient 127.0.0.1 8080</code>. Enter username <code class="inline">subesh</code>, password <code class="inline">subesh</code>.</p>
+            <p><strong>Verification:</strong> Receives <code class="inline">LOGIN_OK|subesh</code>, enters `#general`, receives room history, and password is masked with asterisks during entry.</p>
           </div>
         </div>
 
         <div class="step-box">
-          <div class="step-num">5</div>
+          <div class="step-num">3.2</div>
           <div class="step-content">
-            <div class="step-header">Test Direct Private Messages (DM)</div>
-            <p>In Subesh's terminal, run:</p>
-            <pre>/msg saroj Hey Saroj, this is a private direct message!</pre>
-            <p><strong>What to verify:</strong> Message is delivered exclusively to Saroj with a <code class="inline">[PM]</code> indicator, and Subesh receives an echo copy. Other connected clients in `#general` do not receive it.</p>
+            <div class="step-header">Invalid Password / Unknown User Rejection</div>
+            <p>Try logging in with <code class="inline">subesh</code> / <code class="inline">wrongpassword</code> or <code class="inline">fakeuser</code> / <code class="inline">pass</code>.</p>
+            <p><strong>Verification:</strong> Server responds with <code class="inline">LOGIN_FAIL|Invalid username or password</code> and prompts for re-entry without crashing.</p>
           </div>
         </div>
 
         <div class="step-box">
-          <div class="step-num">6</div>
+          <div class="step-num">3.3</div>
           <div class="step-content">
-            <div class="step-header">Test Password-Protected Rooms & History Replay</div>
+            <div class="step-header">Duplicate Login Prevention (Race-Free Protection)</div>
+            <p>While `subesh` is logged in on Terminal 1, open Terminal 2 and attempt to login as `subesh` with correct password.</p>
+            <p><strong>Verification:</strong> Server detects active session and rejects with <code class="inline">LOGIN_FAIL|User already logged in</code>.</p>
+          </div>
+        </div>
+
+        <div class="step-box">
+          <div class="step-num">3.4</div>
+          <div class="step-content">
+            <div class="step-header">Administrator Authentication</div>
+            <pre>./bin/chatclient --admin --pass admin123</pre>
+            <p><strong>Verification:</strong> Validates against <code class="inline">config/admin.cred</code>, grants elevated privileges, and unlocks admin commands (<code class="inline">/stats</code>, <code class="inline">/announce</code>, <code class="inline">/kick</code>).</p>
+          </div>
+        </div>
+
+        <!-- Category 4 -->
+        <h3>4. Chat & Messaging Variants</h3>
+        <div class="step-box">
+          <div class="step-num">4.1</div>
+          <div class="step-content">
+            <div class="step-header">Public Room Messaging & Timestamps</div>
+            <p>In Subesh's terminal, type <code class="inline">Hello Saroj and Prabesh!</code> and press Enter.</p>
+            <p><strong>Verification:</strong> Message is broadcast to all users currently in `#general` with a timestamp (e.g. `[02:30 PM] subesh: Hello...`). Subesh sees it as a self-message without getting a duplicate loopback from the server.</p>
+          </div>
+        </div>
+
+        <div class="step-box">
+          <div class="step-num">4.2</div>
+          <div class="step-content">
+            <div class="step-header">Real-Time Typing Indicator & Auto-Expiry</div>
+            <p>In Subesh's terminal, type characters into the input box without pressing Enter.</p>
+            <p><strong>Verification:</strong> Saroj's screen immediately shows <code class="inline">[typing] subesh is typing...</code>. Stop typing for 2 seconds; indicator automatically disappears.</p>
+          </div>
+        </div>
+
+        <div class="step-box">
+          <div class="step-num">4.3</div>
+          <div class="step-content">
+            <div class="step-header">1-on-1 Direct Private Message (DM)</div>
+            <pre>/msg saroj This is a secret message just for you.</pre>
+            <p><strong>Verification:</strong> Delivered only to Saroj with a <code class="inline">[PM]</code> tag; echoed to Subesh's terminal. Prabesh (in `#general`) does NOT see this message.</p>
+          </div>
+        </div>
+
+        <div class="step-box">
+          <div class="step-num">4.4</div>
+          <div class="step-content">
+            <div class="step-header">Command History Navigation & Screen Clear</div>
+            <p>Press the Up Arrow (<code class="inline">↑</code>) and Down Arrow (<code class="inline">↓</code>) keys in the input line.</p>
+            <p><strong>Verification:</strong> Cycles through previously submitted slash commands and messages. Type <code class="inline">/clear</code> to flush the chat display buffer.</p>
+          </div>
+        </div>
+
+        <!-- Category 5 -->
+        <h3>5. Room Management, Access Control & History</h3>
+        <div class="step-box">
+          <div class="step-num">5.1</div>
+          <div class="step-content">
+            <div class="step-header">Create Password-Protected Room</div>
             <pre># In Saroj's terminal:
-/createroom dev Developer Team|Secret Room|dev123
-/join dev dev123
-Hello dev team message 1!
-Hello dev team message 2!
-
-# In Subesh's terminal:
-/join dev dev123</pre>
-            <p><strong>What to verify:</strong> Subesh receives the past messages replayed automatically upon joining `#dev`.</p>
+/createroom dev Developer Team|Internal Room|dev123</pre>
+            <p><strong>Verification:</strong> Room `#dev` is created with Saroj as owner. Other users see `#dev` appear in their right-hand sidebar.</p>
           </div>
         </div>
 
         <div class="step-box">
-          <div class="step-num">7</div>
+          <div class="step-num">5.2</div>
           <div class="step-content">
-            <div class="step-header">Test Token-Guarded File Transfer</div>
-            <pre># In Subesh's terminal:
+            <div class="step-header">Password Validation on Join</div>
+            <pre># Try joining with wrong password:
+/join dev wrongpass    # Rejects: JOIN_FAIL|Invalid room password
+
+# Join with correct password:
+/join dev dev123       # Joins #dev successfully</pre>
+          </div>
+        </div>
+
+        <div class="step-box">
+          <div class="step-num">5.3</div>
+          <div class="step-content">
+            <div class="step-header">50-Message History Replay Test</div>
+            <p>1. In `#dev`, Saroj sends 3 messages: <code class="inline">Task 1 assigned</code>, <code class="inline">Task 2 completed</code>, <code class="inline">Ready for review</code>.<br>
+            2. In Subesh's terminal (who was in `#general`), type <code class="inline">/join dev dev123</code>.</p>
+            <p><strong>Verification:</strong> Subesh immediately sees all 3 past messages replayed on screen from the room's memory ring buffer.</p>
+          </div>
+        </div>
+
+        <div class="step-box">
+          <div class="step-num">5.4</div>
+          <div class="step-content">
+            <div class="step-header">Room Inspection & Navigation Commands</div>
+            <pre>/who dev         # Lists members in #dev
+/rooms           # Lists all active rooms and occupant counts
+/leave           # Returns to #general</pre>
+          </div>
+        </div>
+
+        <div class="step-box">
+          <div class="step-num">5.5</div>
+          <div class="step-content">
+            <div class="step-header">Room Deletion & Permission Enforcement</div>
+            <pre># Subesh (non-owner) tries to delete:
+/deleteroom dev   # Fails: Only creator or admin can delete room
+
+# Saroj (owner) deletes:
+/deleteroom dev   # Room deleted; occupants automatically moved to #general</pre>
+          </div>
+        </div>
+
+        <!-- Category 6 -->
+        <h3>6. File Transfer Subsystem & Concurrency Limits (Exhaustive)</h3>
+        <div class="step-box">
+          <div class="step-num">6.1</div>
+          <div class="step-content">
+            <div class="step-header">Direct File Transfer & Integrity Verification</div>
+            <pre># 1. Subesh offers file to Saroj:
 /sendfile @saroj Makefile
 
-# In Saroj's terminal:
-# Prompt appears: [1] subesh offers 'Makefile' (X bytes)... /accept 1
-/accept 1</pre>
-            <p><strong>What to verify:</strong> File is streamed in chunks and saved to <code class="inline">files/Makefile</code>. Verify integrity: <code class="inline">sha256sum Makefile files/Makefile</code> (both hashes will match!).</p>
+# 2. Saroj sees prompt: [1] subesh offers 'Makefile' (X bytes)... /accept 1
+/accept 1
+
+# 3. Verify byte-for-byte cryptographic integrity:
+sha256sum Makefile files/Makefile</pre>
+            <p><strong>Verification:</strong> Both SHA-256 checksum hashes are 100% identical, proving zero corruption during Base64 chunk streaming.</p>
           </div>
         </div>
 
         <div class="step-box">
-          <div class="step-num">8</div>
+          <div class="step-num">6.2</div>
           <div class="step-content">
-            <div class="step-header">Test Admin Dashboard & Moderation</div>
-            <pre># Terminal 4 (Admin):
+            <div class="step-header">Filename Collision Handling (Auto Suffixing)</div>
+            <p>Send <code class="inline">Makefile</code> again from Subesh to Saroj. Saroj accepts with <code class="inline">/accept 1</code>.</p>
+            <p><strong>Verification:</strong> Since <code class="inline">files/Makefile</code> already exists, the receiver automatically renames it to <code class="inline">files/Makefile (1)</code>.</p>
+          </div>
+        </div>
+
+        <div class="step-box">
+          <div class="step-num">6.3</div>
+          <div class="step-content">
+            <div class="step-header">File Offer Rejection</div>
+            <pre># Subesh offers file:
+/sendfile @saroj Makefile
+
+# Saroj declines:
+/reject 1 File not needed right now</pre>
+            <p><strong>Verification:</strong> Upload slot is immediately freed; Subesh receives notification that the offer was declined.</p>
+          </div>
+        </div>
+
+        <div class="step-box">
+          <div class="step-num">6.4</div>
+          <div class="step-content">
+            <div class="step-header">Concurrency Limit (2 Active Slots) & FIFO Queue Test</div>
+            <pre># 1. Create three 500 KB test files:
+truncate -s 500K f1.bin f2.bin f3.bin
+
+# 2. Start Transfer 1 (Subesh -> Saroj):
+/sendfile @saroj f1.bin     # Occupies Upload Slot 1
+
+# 3. Start Transfer 2 (Saroj -> Prabesh):
+/sendfile @prabesh f2.bin   # Occupies Upload Slot 2 (All slots FULL)
+
+# 4. Start Transfer 3 (Prabesh -> Subesh):
+/sendfile @subesh f3.bin    # Server puts in FIFO Queue (FILE_WAIT pos 1)
+
+# 5. Saroj accepts f1.bin (/accept 1) -> finishes f1.bin:
+# -> Slot 1 is freed
+# -> Server automatically promotes f3.bin from queue to Slot 1!
+# -> Subesh receives file offer for f3.bin!</pre>
+            <p><strong>Verification:</strong> Validates <code class="inline">MAX_CONCURRENT_UPLOADS = 2</code>, FIFO queue scheduling, and automatic promotion upon slot release.</p>
+          </div>
+        </div>
+
+        <!-- Category 7 -->
+        <h3>7. Admin Moderation & Operations</h3>
+        <div class="step-box">
+          <div class="step-num">7.1</div>
+          <div class="step-content">
+            <div class="step-header">Admin Operations Dashboard</div>
+            <pre># Connect as admin:
 ./bin/chatclient --admin --pass admin123
 
-/stats                          # View message and transfer counters
-/announce Maintenance in 10m   # Broadcasts global banner
-/accounts                      # Lists registered user accounts</pre>
+/stats                          # View message, PM, and file counters
+/announce Maintenance in 10 min # Broadcasts global banner across all rooms
+/accounts                      # Lists registered accounts
+/createuser charlie pass123    # Registers new user dynamically
+/resetpass charlie newpass456  # Resets password for user
+/kick prabesh Violating rules  # Force-disconnects user socket
+/deleteuser charlie            # Removes account from system</pre>
+          </div>
+        </div>
+
+        <!-- Category 8 -->
+        <h3>8. Fault Tolerance & Disconnection Tests</h3>
+        <div class="step-box">
+          <div class="step-num">8.1</div>
+          <div class="step-content">
+            <div class="step-header">Graceful Logout vs Exit</div>
+            <pre>/logout   # Logs out session, returns to login wizard, server updates user list
+/quit     # Restores terminal settings (termios) and exits cleanly</pre>
           </div>
         </div>
 
         <div class="step-box">
-          <div class="step-num">9</div>
+          <div class="step-num">8.2</div>
           <div class="step-content">
-            <div class="step-header">Automated Integration Test Suite</div>
-            <pre>python3 tests/smoke.py</pre>
-            <p><strong>What to verify:</strong> The automated test script spins up socket clients, tests authentication, messaging, room switching, file transfers with SHA-256 digest validation, and outputs <code class="inline">SMOKE TEST PASSED</code>.</p>
+            <div class="step-header">Hard Crash / Cable Unplug Simulation (<code class="inline">kill -9</code>)</div>
+            <pre># Find client PID and kill abruptly:
+pkill -9 -f "chatclient.*subesh"</pre>
+            <p><strong>Verification:</strong> Server's <code class="inline">recv()</code> returns 0 (EOF), executes <code class="inline">disconnect_cleanup()</code>, releases any held upload slots, unlinks client under <code class="inline">client_mutex</code>, and immediately broadcasts updated user list to remaining clients without crashing.</p>
           </div>
         </div>
+
+        <!-- Category 9 -->
+        <h3>9. Automated Integration Test Suite</h3>
+        <div class="step-box">
+          <div class="step-num">9.1</div>
+          <div class="step-content">
+            <div class="step-header">Run Automated End-to-End Smoke Tests</div>
+            <pre>python3 tests/smoke.py</pre>
+            <p><strong>Verification:</strong> Automatically spins up concurrent raw socket clients, tests authentication, public broadcasts, private DMs, room lifecycle, file transfers with SHA-256 digest validation, and concludes with <code class="inline">SMOKE TEST PASSED</code>.</p>
+          </div>
+        </div>
+
+        <!-- Category 10 -->
+        <h3>10. Wire-Level Inspection with <code class="inline">tcpdump</code></h3>
+        <div class="step-box">
+          <div class="step-num">10.1</div>
+          <div class="step-content">
+            <div class="step-header">Live Packet Capture on Loopback</div>
+            <pre>sudo tcpdump -i lo -A port 8080</pre>
+            <p><strong>Verification:</strong> Inspect the live ASCII wire traffic: observe <code class="inline">PUBLIC|...</code>, <code class="inline">PRIVATE|...</code>, and <code class="inline">FILE_DATA|...</code> chunks traveling across the loopback interface.</p>
+          </div>
+        </div>
+
       </div>
     </div>
 
