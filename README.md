@@ -146,7 +146,7 @@ make clean
 ./bin/chatclient 127.0.0.1 8080
 
 # Auto-login with command flags:
-./bin/chatclient --host 127.0.0.1 --port 8080 --user alice --pass alice
+./bin/chatclient --host 127.0.0.1 --port 8080 --user subesh --pass subesh
 
 # Connect as administrator:
 ./bin/chatclient --host 127.0.0.1 --port 8080 --admin --pass admin123
@@ -160,9 +160,10 @@ The server loads default credentials on startup from the `config/` directory. Us
 
 | Username | Password | Role | Configuration File | Direct Login Command |
 | :--- | :--- | :--- | :--- | :--- |
-| `alice` | `alice` | Standard User | `config/users.cred` | `./bin/chatclient --host 127.0.0.1 --port 8080 --user alice --pass alice` |
-| `bob` | `bob` | Standard User | `config/users.cred` | `./bin/chatclient --host 127.0.0.1 --port 8080 --user bob --pass bob` |
 | `admin` | `admin123` | Administrator | `config/admin.cred` | `./bin/chatclient --host 127.0.0.1 --port 8080 --admin --pass admin123` |
+| `subesh` | `subesh` | Standard User | `config/users.cred` | `./bin/chatclient --host 127.0.0.1 --port 8080 --user subesh --pass subesh` |
+| `saroj` | `saroj` | Standard User | `config/users.cred` | `./bin/chatclient --host 127.0.0.1 --port 8080 --user saroj --pass saroj` |
+| `prabesh`| `prabesh`| Standard User | `config/users.cred` | `./bin/chatclient --host 127.0.0.1 --port 8080 --user prabesh --pass prabesh` |
 
 > **Note:** Administrators can also register new user accounts at runtime using `/createuser <username> <password>` and reset passwords using `/resetpass <username> <new_password>`.
 

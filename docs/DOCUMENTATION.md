@@ -11,7 +11,7 @@ ConnectHub is a two-tier **client–server** architecture over TCP:
 - **Centralized Server:** The server (`bin/chatserver`) listens on TCP port `8080` (by default). It is the single source of truth for online users, accounts, rooms, history, and active file uploads.
 - **Pipe-Delimited Wire Protocol:** All traffic is formatted as plain-text lines of the form `TYPE|field1|field2|...` terminated with `\n`. Example:
   ```
-  PUBLIC|general|alice|hello everyone|02:30 PM
+  PUBLIC|general|subesh|hello everyone|02:30 PM
   ```
 - **Server Concurrency (POSIX Threads):**
   - `main()` loads `config/admin.cred` and `config/users.cred`, initializes subsystems, binds the listening socket, and executes an accept loop driven by `select()` with a 1-second timeout.
@@ -57,9 +57,10 @@ Sender → Server → Recipient:
 The server pre-loads default credentials on startup:
 | Username | Password | Role | Configuration File | Purpose / Permissions |
 | :--- | :--- | :--- | :--- | :--- |
-| `alice` | `alice` | Standard User | `config/users.cred` | General messaging, file transfer, room creation |
-| `bob` | `bob` | Standard User | `config/users.cred` | General messaging, file transfer, room creation |
 | `admin` | `admin123` | Administrator | `config/admin.cred` | Access to `/stats`, `/announce`, `/kick`, `/createuser`, `/deleteuser`, `/resetpass` |
+| `subesh` | `subesh` | Standard User | `config/users.cred` | General messaging, file transfer, room creation |
+| `saroj` | `saroj` | Standard User | `config/users.cred` | General messaging, file transfer, room creation |
+| `prabesh`| `prabesh`| Standard User | `config/users.cred` | General messaging, file transfer, room creation |
 
 ---
 

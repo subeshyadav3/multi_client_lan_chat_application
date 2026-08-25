@@ -427,7 +427,7 @@ Base64 Chars:   'A'-'Z', 'a'-'z', '0'-'9', '+', '/' (with '=' padding)
 
         <h3>The 7-Step Transfer Protocol Sequence</h3>
         <div class="flow-diagram">
-Client 1 (Sender)                     Server (chatserver)                  Client 2 (Receiver)
+Client 1 (Sender: subesh)            Server (chatserver)                  Client 2 (Receiver: saroj)
        |                                       |                                    |
        |  1. FILE_REQUEST|file.pdf|size|target |                                    |
        |-------------------------------------->|                                    |
@@ -435,21 +435,21 @@ Client 1 (Sender)                     Server (chatserver)                  Clien
        |                                       |  Allocates upload slot,            |
        |                                       |  Mints random 16-hex TOKEN)        |
        |                                       |                                    |
-       |  2. FILE_GRANTED|alice|file|TOKEN|size|  3. FILE_OFFER|alice|file|size|bob  |
+       |  2. FILE_GRANTED|subesh|file|TOKEN|sz |  3. FILE_OFFER|subesh|file|sz|saroj|
        |<--------------------------------------|----------------------------------->|
        |                                       |                                    |
-       |                                       |                                    | (Bob types /accept 1)
-       |                                       |  4. FILE_ACCEPT|alice|file.pdf     |
+       |                                       |                                    | (Saroj types /accept 1)
+       |                                       |  4. FILE_ACCEPT|subesh|file.pdf    |
        |                                       |<-----------------------------------|
        |                                       |                                    |
        |  5. FILE_DATA|file|TOKEN|<b64_chunk>  |                                    |
        |-------------------------------------->| (Verifies TOKEN matches slot!)     |
-       |                                       |  6. FILE_DATA|alice|file|<b64>     |
+       |                                       |  6. FILE_DATA|subesh|file|<b64>    |
        |                                       |----------------------------------->| (Appends to file.tmp)
        |                                       |                                    |
        |  7. FILE_END|file.pdf                 |                                    |
        |-------------------------------------->|                                    |
-       |                                       |  8. FILE_END|alice|file.pdf        |
+       |                                       |  8. FILE_END|subesh|file.pdf       |
        |                                       |----------------------------------->| (Renames file.tmp
        |                                       |                                    |  -> files/file.pdf)
         </div>
@@ -493,16 +493,16 @@ Client 1 (Sender)                     Server (chatserver)                  Clien
         <div class="step-box">
           <div class="step-num">3</div>
           <div class="step-content">
-            <div class="step-header">Connect Clients (Alice & Bob)</div>
+            <div class="step-header">Connect Clients (Subesh & Saroj)</div>
             <p>Open two separate terminal windows:</p>
-            <pre># Terminal 2 (Alice):
+            <pre># Terminal 2 (Subesh):
 ./bin/chatclient 127.0.0.1 8080
-# Type username: alice | password: alice
+# Type username: subesh | password: subesh
 
-# Terminal 3 (Bob):
+# Terminal 3 (Saroj):
 ./bin/chatclient 127.0.0.1 8080
-# Type username: bob | password: bob</pre>
-            <p><strong>What to verify:</strong> Password input is masked with asterisks. Alice's sidebar immediately shows Bob under online users upon Bob's connection.</p>
+# Type username: saroj | password: saroj</pre>
+            <p><strong>What to verify:</strong> Password input is masked with asterisks. Subesh's sidebar immediately shows Saroj under online users upon Saroj's connection.</p>
           </div>
         </div>
 
@@ -510,8 +510,8 @@ Client 1 (Sender)                     Server (chatserver)                  Clien
           <div class="step-num">4</div>
           <div class="step-content">
             <div class="step-header">Test Public Chat & Real-Time Typing Indicators</div>
-            <p>In Alice's terminal, type letters without pressing Enter.</p>
-            <p><strong>What to verify:</strong> Bob's screen immediately displays <code class="inline">[typing] alice is typing...</code>. Press Enter in Alice's terminal; message appears in `#general` with a timestamp across both terminals.</p>
+            <p>In Subesh's terminal, type letters without pressing Enter.</p>
+            <p><strong>What to verify:</strong> Saroj's screen immediately displays <code class="inline">[typing] subesh is typing...</code>. Press Enter in Subesh's terminal; message appears in `#general` with a timestamp across both terminals.</p>
           </div>
         </div>
 
@@ -519,9 +519,9 @@ Client 1 (Sender)                     Server (chatserver)                  Clien
           <div class="step-num">5</div>
           <div class="step-content">
             <div class="step-header">Test Direct Private Messages (DM)</div>
-            <p>In Alice's terminal, run:</p>
-            <pre>/msg bob Hey Bob, this is a private direct message!</pre>
-            <p><strong>What to verify:</strong> Message is delivered exclusively to Bob with a <code class="inline">[PM]</code> indicator, and Alice receives an echo copy. Other connected clients in `#general` do not receive it.</p>
+            <p>In Subesh's terminal, run:</p>
+            <pre>/msg saroj Hey Saroj, this is a private direct message!</pre>
+            <p><strong>What to verify:</strong> Message is delivered exclusively to Saroj with a <code class="inline">[PM]</code> indicator, and Subesh receives an echo copy. Other connected clients in `#general` do not receive it.</p>
           </div>
         </div>
 
@@ -529,15 +529,15 @@ Client 1 (Sender)                     Server (chatserver)                  Clien
           <div class="step-num">6</div>
           <div class="step-content">
             <div class="step-header">Test Password-Protected Rooms & History Replay</div>
-            <pre># In Bob's terminal:
+            <pre># In Saroj's terminal:
 /createroom dev Developer Team|Secret Room|dev123
 /join dev dev123
 Hello dev team message 1!
 Hello dev team message 2!
 
-# In Alice's terminal:
+# In Subesh's terminal:
 /join dev dev123</pre>
-            <p><strong>What to verify:</strong> Alice receives the past messages replayed automatically upon joining `#dev`.</p>
+            <p><strong>What to verify:</strong> Subesh receives the past messages replayed automatically upon joining `#dev`.</p>
           </div>
         </div>
 
@@ -545,11 +545,11 @@ Hello dev team message 2!
           <div class="step-num">7</div>
           <div class="step-content">
             <div class="step-header">Test Token-Guarded File Transfer</div>
-            <pre># In Alice's terminal:
-/sendfile @bob Makefile
+            <pre># In Subesh's terminal:
+/sendfile @saroj Makefile
 
-# In Bob's terminal:
-# Prompt appears: [1] alice offers 'Makefile' (X bytes)... /accept 1
+# In Saroj's terminal:
+# Prompt appears: [1] subesh offers 'Makefile' (X bytes)... /accept 1
 /accept 1</pre>
             <p><strong>What to verify:</strong> File is streamed in chunks and saved to <code class="inline">files/Makefile</code>. Verify integrity: <code class="inline">sha256sum Makefile files/Makefile</code> (both hashes will match!).</p>
           </div>
@@ -564,8 +564,7 @@ Hello dev team message 2!
 
 /stats                          # View message and transfer counters
 /announce Maintenance in 10m   # Broadcasts global banner
-/accounts                      # Lists registered user accounts
-/createuser charlie pass123    # Registers new user at runtime</pre>
+/accounts                      # Lists registered user accounts</pre>
           </div>
         </div>
 
