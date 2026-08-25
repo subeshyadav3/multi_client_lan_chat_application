@@ -46,7 +46,8 @@ $(BINDIR)/chatserver: $(OBJDIR)/server/server.o $(OBJDIR)/server/connection.o $(
 
 # --- Remove all build output -------------------------------------------
 clean:
-	rm -rf $(OBJDIR) $(BINDIR)
+	rm -rf $(OBJDIR)
+	rm -f $(BINDIR)/chatclient $(BINDIR)/chatserver
 
 # --- Targets that are not real files ------------------------------------
 .PHONY: all clean directories

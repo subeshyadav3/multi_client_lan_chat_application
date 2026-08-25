@@ -14,7 +14,7 @@ import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOST = "127.0.0.1"
-PORT = 8080
+PORT = 8089
 
 
 def run(cmd, **kw):
@@ -80,87 +80,192 @@ class Client:
 
 
 def main():
-    run(["make", "clean"])
+    import base64
     run(["make"])
 
+    # Ensure clean users.cred with subesh, saroj, prabesh
     config_dir = os.path.join(ROOT, "config")
     os.makedirs(config_dir, exist_ok=True)
     with open(os.path.join(config_dir, "users.cred"), "w") as f:
-        f.write("alice:alice\nbob:bob\n")
+        f.write("subesh:subesh\nsaroj:saroj\nprabesh:prabesh\n")
 
-    server = subprocess.Popen(["./bin/chatserver"], cwd=ROOT,
+    with open(os.path.join(config_dir, "admin.cred"), "w") as f:
+        f.write("admin:admin123\n")
+
+    server = subprocess.Popen(["./bin/chatserver", "8089"], cwd=ROOT,
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     try:
+        global PORT
+        PORT = 8089
         wait_for_server()
+        print("✓ Server listening on port 8089")
 
-        alice = Client()
-        time.sleep(0.2)
-        bob = Client()
-        time.sleep(0.2)
+        # 1. Invalid login
+        bad_c = Client()
+        bad_c.send("LOGIN|subesh|wrongpassword")
+        res = bad_c.expect("LOGIN_FAIL|")
+        assert "Invalid" in res, f"Unexpected response: {res}"
+        bad_c.close()
+        print("  ✓ Invalid password rejected properly")
 
-        alice.send("LOGIN|alice|alice")
-        alice.expect("LOGIN_OK|alice")
-        bob.send("LOGIN|bob|bob")
-        bob.expect("LOGIN_OK|bob")
-        alice.drain()
+        # 2. Valid logins
+        subesh = Client()
+        subesh.send("LOGIN|subesh|subesh")
+        subesh.expect("LOGIN_OK|subesh")
 
-        # User list
-        alice.send("LIST_USERS")
-        users = alice.expect("USERS|")
-        assert "alice:1" in users, users
-        assert "bob:1" in users, users
+        saroj = Client()
+        saroj.send("LOGIN|saroj|saroj")
+        saroj.expect("LOGIN_OK|saroj")
 
-        # Room list
-        alice.send("LIST_ROOMS")
-        rooms = alice.expect("ROOMS|")
+        prabesh = Client()
+        prabesh.send("LOGIN|prabesh|prabesh")
+        prabesh.expect("LOGIN_OK|prabesh")
+        print("  ✓ Valid logins succeeded (Subesh, Saroj, Prabesh)")
+
+        # 3. Duplicate login prevention
+        dup = Client()
+        dup.send("LOGIN|subesh|subesh")
+        res = dup.expect("LOGIN_FAIL|")
+        assert "already logged in" in res.lower(), f"Unexpected duplicate response: {res}"
+        dup.close()
+        print("  ✓ Duplicate active login prevented")
+
+        # 4. User and Room Discovery
+        subesh.drain()
+        subesh.send("LIST_USERS")
+        users = subesh.expect("USERS|")
+        assert "subesh:1" in users and "saroj:1" in users and "prabesh:1" in users, users
+        print("  ✓ LIST_USERS returned all online users")
+
+        subesh.send("LIST_ROOMS")
+        rooms = subesh.expect("ROOMS|")
         assert "general" in rooms, rooms
+        print("  ✓ LIST_ROOMS returned default #general")
 
-        # Public message reaches bob
-        alice.send("PUBLIC|general|hello everyone")
-        public = bob.expect("PUBLIC|")
-        assert "alice" in public and "hello everyone" in public, public
+        # 5. Public Chat & Typing Indicators
+        subesh.send("TYPING|general")
+        typing_msg = saroj.expect("TYPING|")
+        assert "subesh" in typing_msg, typing_msg
+        print("  ✓ Real-time typing notification received")
 
-        # Private message reaches alice
-        bob.send("PRIVATE|alice|hi alice")
-        private = alice.expect("PRIVATE|")
-        assert "bob" in private and "hi alice" in private, private
+        subesh.send("PUBLIC|general|Hello everyone in the room!")
+        pub1 = saroj.expect("PUBLIC|")
+        pub2 = prabesh.expect("PUBLIC|")
+        assert "subesh" in pub1 and "Hello everyone" in pub1
+        assert "subesh" in pub2 and "Hello everyone" in pub2
+        print("  ✓ Public broadcast delivered to all room members")
 
-        # Create + join a room
-        bob.send("CREATE|dev")
-        assert "dev" in bob.expect("ROOMS|") or True
-        bob.drain()
-        bob.send("JOIN|dev")
-        bob.expect("JOIN_OK|dev")
-        bob.send("PUBLIC|dev|welcome to dev")
-        bob.drain()
+        # 6. Direct 1-on-1 Private Messaging (DM)
+        prabesh.drain()
+        subesh.send("PRIVATE|saroj|Confidential message for Saroj only")
+        dm = saroj.expect("PRIVATE|")
+        assert "subesh" in dm and "Confidential message" in dm, dm
 
-        # Logout
-        bob.send("LOGOUT")
-        bob.close()
-        alice.drain()
-        alice.send("LIST_USERS")
-        users2 = alice.expect("USERS|")
-        assert "alice:1" in users2, users2
-        assert "bob" not in users2, f"bob still listed: {users2}"
+        time.sleep(0.2)
+        prabesh_lines = prabesh.drain()
+        for l in prabesh_lines:
+            assert "Confidential message" not in l, f"PM leaked: {l}"
+        print("  ✓ Private message delivered exclusively without leak")
 
-        alice.close()
-        print("\nSMOKE TEST PASSED")
+        # 7. Password-Protected Rooms & Access Control
+        saroj.send("CREATE_ROOM|dev|Developer Team|Secret Dev Room|dev123")
+        saroj.expect("ROOM_CREATED|dev")
+        print("  ✓ Protected room 'dev' created with password")
+
+        saroj.send("JOIN|dev")
+        saroj.expect("JOIN_OK|dev")
+        print("  ✓ Room creator auto-authorized into room")
+
+        subesh.send("JOIN|dev")
+        fail1 = subesh.expect("JOIN_FAIL|")
+        assert "password" in fail1.lower(), fail1
+        print("  ✓ Joining protected room without password rejected")
+
+        subesh.send("JOIN|dev|wrongpass")
+        fail2 = subesh.expect("JOIN_FAIL|")
+        assert "password" in fail2.lower(), fail2
+        print("  ✓ Joining protected room with wrong password rejected")
+
+        subesh.send("JOIN|dev|dev123")
+        subesh.expect("JOIN_OK|dev")
+        print("  ✓ Joining protected room with correct password succeeded")
+
+        # 8. Room History Replay
+        saroj.send("PUBLIC|dev|Sprint 1 starting")
+        saroj.send("PUBLIC|dev|Sprint 2 in progress")
+        time.sleep(0.2)
+        subesh.drain()
+
+        prabesh.send("JOIN|dev|dev123")
+        lines = prabesh.read_lines(timeout=1.5)
+        history_found = any("Sprint 1" in l or "Sprint 2" in l for l in lines)
+        join_ok_found = any("JOIN_OK|dev" in l for l in lines)
+        assert history_found, f"History not replayed in lines: {lines}"
+        assert join_ok_found, f"JOIN_OK not found in lines: {lines}"
+        print("  ✓ Room history replayed to newly joined user upon join")
+
+        # 9. Token-Guarded Chunked File Transfer
+        test_payload = b"ConnectHub test file payload data for integrity validation"
+        file_size = len(test_payload)
+        subesh.send(f"FILE_REQUEST|test.dat|{file_size}|saroj")
+        grant = subesh.expect("FILE_GRANTED|")
+        token = grant.split("|")[3]
+        assert len(token) > 0
+
+        saroj.expect("FILE_OFFER|")
+        saroj.send("FILE_ACCEPT|subesh|test.dat")
+        subesh.expect("FILE_ACCEPT|")
+
+        b64_data = base64.b64encode(test_payload).decode("ascii")
+        subesh.send(f"FILE_DATA|test.dat|{token}|{b64_data}")
+        saroj.expect("FILE_DATA|")
+
+        subesh.send("FILE_END|test.dat")
+        saroj.expect("FILE_END|")
+        print("  ✓ Token-guarded chunked file transfer completed")
+
+        # 10. Admin Operations
+        admin = Client()
+        admin.send("LOGIN|admin|admin123")
+        admin.expect("LOGIN_OK|admin")
+
+        admin.send("STATS")
+        stats = admin.expect("STATUS|")
+        print("  ✓ Admin /stats verified")
+
+        admin.send("ANNOUNCE|Maintenance in 10 minutes")
+        subesh.expect("ANNOUNCE|")
+        print("  ✓ Global announcement broadcast verified")
+
+        # 11. Disconnect & Presence Cleanup
+        saroj.send("LOGOUT")
+        saroj.close()
+        subesh.drain()
+        subesh.send("LIST_USERS")
+        users_after = subesh.expect("USERS|")
+        assert "saroj" not in users_after, f"Saroj still listed: {users_after}"
+        print("  ✓ Disconnection cleanup & presence update verified")
+
+        subesh.close()
+        prabesh.close()
+        admin.close()
+
+        print("\n=======================================================")
+        print("🎉 ALL INTEGRATION TESTS PASSED WITH ZERO FAILURES!")
+        print("=======================================================")
         return 0
+
     except Exception as e:
-        print(f"\nSMOKE TEST FAILED: {e}", file=sys.stderr)
+        print(f"\n❌ TEST FAILED: {e}", file=sys.stderr)
         return 1
     finally:
         if server.poll() is None:
             server.terminate()
             try:
-                server.wait(timeout=5)
+                server.wait(timeout=3)
             except subprocess.TimeoutExpired:
                 server.kill()
                 server.wait()
-        out = server.stdout.read().decode("utf-8", errors="replace")
-        if out.strip():
-            print("--- server output ---")
-            print(out)
 
 
 if __name__ == "__main__":

@@ -167,25 +167,42 @@ static void h_leave(Client *c, Cmd *m) {
     net_broadcast_room(prev_room, msg, NULL);
 }
 
-/* Simple room create (legacy command CREATE). */
+/* Simple room create (command CREATE). */
 static void h_create(Client *c, Cmd *m) {
-    if (room_create(m->a1)) {
+    const char *rn = m->a1;
+    const char *rp = (m->parts >= 3 && m->a2[0]) ? m->a2 : "";
+    if (room_create_extended(rn, rn, "", rp, c->username)) {
+        if (rp && rp[0]) {
+            room_grant_access(c->username, rn);
+        }
         char msg[256];
-        snprintf(msg, sizeof(msg), "NOTIFY|Room '%s' created by %s.\n", m->a1, c->username);
+        snprintf(msg, sizeof(msg), "NOTIFY|Room '%s' created by %s.%s\n",
+                 rn, c->username, (rp && rp[0]) ? " (password-protected)" : "");
         net_broadcast(msg, NULL);
         net_broadcast_room_list();
+        char ok[128];
+        snprintf(ok, sizeof(ok), "ROOM_CREATED|%s\n", rn);
+        send_raw(c, ok);
+    } else {
+        char err[256];
+        snprintf(err, sizeof(err), "ERROR|Room '%s' already exists or invalid\n", rn);
+        send_raw(c, err);
     }
 }
 
 /* Extended room create with optional title/description/password. */
 static void h_create_room(Client *c, Cmd *m) {
     const char *rn = m->a1;
-    const char *rt = (m->parts >= 3) ? m->a2 : "";
-    const char *rd = (m->parts >= 4) ? m->a3 : "";
-    const char *rp = (m->parts >= 5) ? m->a4 : "";
+    const char *rt = (m->parts >= 3 && m->a2[0]) ? m->a2 : rn;
+    const char *rd = (m->parts >= 4 && m->a3[0]) ? m->a3 : "";
+    const char *rp = (m->parts >= 5 && m->a4[0]) ? m->a4 : "";
     if (room_create_extended(rn, rt, rd, rp, c->username)) {
+        if (rp && rp[0]) {
+            room_grant_access(c->username, rn);
+        }
         char msg[256];
-        snprintf(msg, sizeof(msg), "NOTIFY|Room '%s' created by %s.\n", rn, c->username);
+        snprintf(msg, sizeof(msg), "NOTIFY|Room '%s' created by %s.%s\n",
+                 rn, c->username, (rp && rp[0]) ? " (password-protected)" : "");
         net_broadcast(msg, NULL);
         net_broadcast_room_list();
         char ok[128];

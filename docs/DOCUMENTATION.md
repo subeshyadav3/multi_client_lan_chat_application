@@ -112,6 +112,35 @@ The server pre-loads default credentials on startup:
 | `FILE_DATA` | `sender\|name\|base64` | Forwarded file chunk |
 | `FILE_END` | `sender\|name` | File transfer completed |
 
+### 3.3 Client Slash Commands Reference
+
+| Slash Command | Parameters / Formats | Description |
+| :--- | :--- | :--- |
+| `/help` | *(none)* | Displays available commands and quick-start guide |
+| `/msg` | `<username> <message>` | Sends a 1-on-1 private direct message |
+| `/create` | `<room> [password]` | Creates a new chat room (optional password) |
+| `/createroom` | `<room> [password]`<br>`<room> "Title" [password]`<br>`<room> "Title" "Description" [password]`<br>`<room> Title\|Description\|password` | Creates a rich room with optional title, description, and password |
+| `/join` | `<room> [password]` | Joins a room (validates password if protected, replays last 50 messages) |
+| `/leave` | *(none)* | Leaves current room and returns to `#general` |
+| `/rooms` | *(none)* | Lists all active rooms with occupant counts in chat & sidebar |
+| `/who` | `[room]` | Lists active members inside the specified or current room |
+| `/history` | *(none)* | Manually requests a replay of recent messages in the room |
+| `/deleteroom` | `<room>` | Deletes room (creator or administrator only) |
+| `/users` | *(none)* | Lists all currently online users |
+| `/sendfile` | `@<username> <file_path>` *(direct)*<br>`<file_path>` *(room broadcast)* | Offers a file for transmission |
+| `/accept` | `<offer#>` or `<sender> <filename>` | Accepts an incoming file offer and begins chunk streaming |
+| `/reject` | `<offer#> [reason]` or `<sender> <fn> [why]` | Declines an incoming file offer and frees upload slot |
+| `/clear` | *(none)* | Clears local terminal chat scrollback buffer |
+| `/logout` | *(none)* | Disconnects session and returns to login wizard |
+| `/quit`, `/exit` | *(none)* | Restores terminal mode and terminates application |
+| `/stats` *(admin)* | *(none)* | Displays server uptime and throughput counters |
+| `/announce` *(admin)* | `<message>` | Broadcasts a high-priority banner across all rooms |
+| `/accounts` *(admin)* | *(none)* | Lists all registered accounts in `config/users.cred` |
+| `/createuser` *(admin)* | `<username> <password>` | Dynamically creates and saves a new user account |
+| `/resetpass` *(admin)* | `<username> <new_password>` | Dynamically resets password for an existing account |
+| `/kick` *(admin)* | `<username> [reason]` | Immediately force-disconnects an active client socket |
+| `/deleteuser` *(admin)* | `<username>` | Deletes an account from the system |
+
 ---
 
 ## 4. Academic Deliverables & Defense Resources

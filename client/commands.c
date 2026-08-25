@@ -155,23 +155,149 @@ static void cmd_join(App *app, const char *rest) {
     } else tui_add_line(app, LN_ERROR, "Usage: /join <room> [password]");
 }
 
-static void cmd_create(App *app, const char *rest) {
-    char room[MAX_ROOM_NAME] = {0};
-    sscanf(rest, "%63s", room);
-    if (room[0]) {
-        char out[128]; snprintf(out, sizeof(out), "CREATE|%s", room);
-        net_send_line(app->sockfd, out);
-    } else tui_add_line(app, LN_ERROR, "Usage: /create <room>");
+static void parse_room_args(const char *rest, char *name, char *title, char *desc, char *pw) {
+    name[0] = title[0] = desc[0] = pw[0] = '\0';
+    if (!rest || !rest[0]) return;
+
+    /* If pipe-delimited format was used: e.g. dev Title|Desc|password */
+    if (strchr(rest, '|')) {
+        char copy[512];
+        strncpy(copy, rest, sizeof(copy) - 1);
+        copy[sizeof(copy) - 1] = '\0';
+        char *first_pipe = strchr(copy, '|');
+        char *first_space = strchr(copy, ' ');
+        if (first_space && first_space < first_pipe) {
+            *first_space = '\0';
+            strncpy(name, copy, MAX_ROOM_NAME - 1);
+            char *p = first_space + 1;
+            while (*p == ' ') p++;
+            char *p1 = strchr(p, '|');
+            if (p1) {
+                *p1 = '\0';
+                strncpy(title, p, 127);
+                char *p2 = strchr(p1 + 1, '|');
+                if (p2) {
+                    *p2 = '\0';
+                    strncpy(desc, p1 + 1, 255);
+                    strncpy(pw, p2 + 1, 63);
+                } else {
+                    strncpy(desc, p1 + 1, 255);
+                }
+            } else {
+                strncpy(title, p, 127);
+            }
+        } else {
+            char *p1 = strchr(copy, '|');
+            *p1 = '\0';
+            strncpy(name, copy, MAX_ROOM_NAME - 1);
+            char *p2 = strchr(p1 + 1, '|');
+            if (p2) {
+                *p2 = '\0';
+                strncpy(title, p1 + 1, 127);
+                char *p3 = strchr(p2 + 1, '|');
+                if (p3) {
+                    *p3 = '\0';
+                    strncpy(desc, p2 + 1, 255);
+                    strncpy(pw, p3 + 1, 63);
+                } else {
+                    strncpy(desc, p2 + 1, 255);
+                }
+            } else {
+                strncpy(title, p1 + 1, 127);
+            }
+        }
+        if (!title[0]) strncpy(title, name, 127);
+        return;
+    }
+
+    /* Tokenize by quotes or spaces (e.g. dev "Dev Team" "Secret Room" dev123) */
+    char tokens[4][256];
+    memset(tokens, 0, sizeof(tokens));
+    int count = 0;
+    const char *p = rest;
+    while (*p && count < 4) {
+        while (*p == ' ' || *p == '\t') p++;
+        if (!*p) break;
+        if (*p == '"') {
+            p++;
+            int len = 0;
+            while (*p && *p != '"' && len < 255) {
+                tokens[count][len++] = *p++;
+            }
+            tokens[count][len] = '\0';
+            if (*p == '"') p++;
+        } else {
+            int len = 0;
+            while (*p && *p != ' ' && *p != '\t' && len < 255) {
+                tokens[count][len++] = *p++;
+            }
+            tokens[count][len] = '\0';
+        }
+        count++;
+    }
+
+    if (count >= 1) strncpy(name, tokens[0], MAX_ROOM_NAME - 1);
+    if (count == 1) {
+        strncpy(title, tokens[0], 127);
+    } else if (count == 2) {
+        /* /create dev dev123 or /createroom dev dev123 -> tokens[0]=name, tokens[1]=password */
+        strncpy(title, tokens[0], 127);
+        strncpy(pw, tokens[1], 63);
+    } else if (count == 3) {
+        /* /createroom dev "Dev Team" dev123 -> name, title, password */
+        strncpy(title, tokens[1], 127);
+        strncpy(pw, tokens[2], 63);
+    } else if (count >= 4) {
+        /* /createroom dev "Dev Team" "Desc" dev123 -> name, title, desc, password */
+        strncpy(title, tokens[1], 127);
+        strncpy(desc, tokens[2], 255);
+        strncpy(pw, tokens[3], 63);
+    }
 }
 
-static void cmd_createroom(App *app, const char *rest) {
+static void cmd_create(App *app, const char *rest) {
     char name[MAX_ROOM_NAME]={0}, title[128]={0}, desc[256]={0}, pw[64]={0};
-    (void)sscanf(rest, "%63s %127[^|]|%[^|]|%63s", name, title, desc, pw);
+    parse_room_args(rest, name, title, desc, pw);
     if (name[0]) {
         char out[700];
         snprintf(out, sizeof(out), "CREATE_ROOM|%s|%s|%s|%s", name, title, desc, pw);
         net_send_line(app->sockfd, out);
-    } else tui_add_line(app, LN_ERROR, "Usage: /createroom <name> [title|desc|password]");
+    } else {
+        tui_add_line(app, LN_ERROR, "Usage: /create <room> [password]");
+    }
+}
+
+static void cmd_createroom(App *app, const char *rest) {
+    char name[MAX_ROOM_NAME]={0}, title[128]={0}, desc[256]={0}, pw[64]={0};
+    parse_room_args(rest, name, title, desc, pw);
+    if (name[0]) {
+        char out[700];
+        snprintf(out, sizeof(out), "CREATE_ROOM|%s|%s|%s|%s", name, title, desc, pw);
+        net_send_line(app->sockfd, out);
+    } else {
+        tui_add_line(app, LN_ERROR, "Usage: /createroom <name> [password] or /createroom <name> [title] [desc] [password]");
+    }
+}
+
+static void cmd_rooms(App *app) {
+    char list[MAX_MESSAGE] = {0};
+    for (int i = 0; i < app->room_count; i++) {
+        if (i > 0) strncat(list, ", ", sizeof(list) - strlen(list) - 1);
+        strncat(list, "#", sizeof(list) - strlen(list) - 1);
+        strncat(list, app->rooms[i], sizeof(list) - strlen(list) - 1);
+    }
+    tui_add_line(app, LN_STATUS, "Rooms online (%d): %s", app->room_count, list[0] ? list : "#general");
+    net_send_line(app->sockfd, "LIST_ROOMS");
+}
+
+static void cmd_users(App *app) {
+    char list[MAX_MESSAGE] = {0};
+    for (int i = 0; i < app->user_count; i++) {
+        if (i > 0) strncat(list, ", ", sizeof(list) - strlen(list) - 1);
+        strncat(list, app->users[i], sizeof(list) - strlen(list) - 1);
+    }
+    tui_add_line(app, LN_STATUS, "Users online (%d): %s", app->user_count, list[0] ? list : "none");
+    net_send_line(app->sockfd, "LIST_USERS");
 }
 
 static void cmd_who(App *app, const char *rest) {
@@ -303,11 +429,11 @@ void cmd_process(App *app, const char *line) {
     else if (strcmp(cmd, "leave") == 0)      net_send_line(app->sockfd, "LEAVE|general");
     else if (strcmp(cmd, "create") == 0)     cmd_create(app, rest);
     else if (strcmp(cmd, "createroom") == 0) cmd_createroom(app, rest);
-    else if (strcmp(cmd, "rooms") == 0)      net_send_line(app->sockfd, "LIST_ROOMS");
+    else if (strcmp(cmd, "rooms") == 0)      cmd_rooms(app);
     else if (strcmp(cmd, "who") == 0)        cmd_who(app, rest);
     else if (strcmp(cmd, "history") == 0)    cmd_history(app);
     else if (strcmp(cmd, "deleteroom") == 0) cmd_deleteroom(app, rest);
-    else if (strcmp(cmd, "users") == 0)      net_send_line(app->sockfd, "LIST_USERS");
+    else if (strcmp(cmd, "users") == 0)      cmd_users(app);
     else if (strcmp(cmd, "clear") == 0)      app->line_count = 0;
     else if (strcmp(cmd, "typing") == 0)     net_send_line(app->sockfd, "TYPING|general");
     else if (strcmp(cmd, "stats") == 0)      net_send_line(app->sockfd, "STATS");
