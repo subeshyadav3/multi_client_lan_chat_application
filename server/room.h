@@ -52,5 +52,6 @@ void room_access_load(void);            /* prepare (empty) access registry */
 void room_access_clear(void);           /* drop every access grant (shutdown) */
 bool room_has_access(const char *username, const char *room);
 void room_grant_access(const char *username, const char *room);
+void room_access_remove_room(const char *room);
 
 #endif /* ROOM_H */

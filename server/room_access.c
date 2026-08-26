@@ -65,3 +65,20 @@ void room_grant_access(const char *username, const char *room) {
     access_list = a;
     pthread_mutex_unlock(&access_mutex);
 }
+
+/* Remove all access grants for a deleted room. */
+void room_access_remove_room(const char *room) {
+    if (!room) return;
+    pthread_mutex_lock(&access_mutex);
+    AccessEntry **pp = &access_list;
+    while (*pp) {
+        if (strcmp((*pp)->room, room) == 0) {
+            AccessEntry *tmp = *pp;
+            *pp = (*pp)->next;
+            free(tmp);
+        } else {
+            pp = &((*pp)->next);
+        }
+    }
+    pthread_mutex_unlock(&access_mutex);
+}

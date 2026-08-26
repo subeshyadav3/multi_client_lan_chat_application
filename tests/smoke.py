@@ -190,19 +190,20 @@ def main():
         subesh.expect("JOIN_OK|dev")
         print("  ✓ Joining protected room with correct password succeeded")
 
-        # 8. Room History Replay
+        # 8. Room History Replay & # Prefix Room Join
         saroj.send("PUBLIC|dev|Sprint 1 starting")
         saroj.send("PUBLIC|dev|Sprint 2 in progress")
         time.sleep(0.2)
         subesh.drain()
 
-        prabesh.send("JOIN|dev|dev123")
+        # Join with leading '#' to verify prefix handling
+        prabesh.send("JOIN|#dev|dev123")
         lines = prabesh.read_lines(timeout=1.5)
         history_found = any("Sprint 1" in l or "Sprint 2" in l for l in lines)
         join_ok_found = any("JOIN_OK|dev" in l for l in lines)
         assert history_found, f"History not replayed in lines: {lines}"
         assert join_ok_found, f"JOIN_OK not found in lines: {lines}"
-        print("  ✓ Room history replayed to newly joined user upon join")
+        print("  ✓ Joining room with '#dev' prefix and password succeeded & history replayed")
 
         # 9. Token-Guarded Chunked File Transfer (2 MB max per file, 4 MB combined)
         # 9a. Over-limit rejection test (>2 MB)

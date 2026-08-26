@@ -118,14 +118,33 @@ static void handle_public(App *app, char p[][256]) {
     char text[MAX_MESSAGE];
     strncpy(text, p[3], MAX_MESSAGE - 1);
     strip_newline(text);
-    tui_add_line(app, LN_NORMAL, "[%s] %s: %s", p[4][0] ? p[4] : "?", p[2], text);
+    const char *sender = p[2];
+    const char *ts = p[4][0] ? p[4] : "?";
+
+    if (strcmp(sender, app->username) == 0) {
+        /* Message sent by ourselves */
+        tui_add_line(app, LN_SELF, "[%s] %s: %s", ts, sender, text);
+    } else {
+        /* Message sent by another user */
+        tui_add_line(app, LN_NORMAL, "[%s] %s: %s", ts, sender, text);
+    }
 }
 
 static void handle_private(App *app, char p[][256]) {
     char text[MAX_MESSAGE];
     strncpy(text, p[3], MAX_MESSAGE - 1);
     strip_newline(text);
-    tui_add_line(app, LN_PM, "[%s] (PM) %s: %s", p[4][0] ? p[4] : "?", p[1], text);
+    const char *sender = p[1];
+    const char *recipient = p[2];
+    const char *ts = p[4][0] ? p[4] : "?";
+
+    if (strcmp(sender, app->username) == 0) {
+        /* Echo of outgoing PM sent by us */
+        tui_add_line(app, LN_PM, "[%s] -> %s: %s", ts, recipient, text);
+    } else {
+        /* Incoming PM from someone else */
+        tui_add_line(app, LN_PM, "[%s] (PM) %s: %s", ts, sender, text);
+    }
 }
 
 static void handle_notify(App *app, char p[][256]) {

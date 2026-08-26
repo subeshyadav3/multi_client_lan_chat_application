@@ -88,15 +88,13 @@ void process_input(App *app) {
     if (inp[0] == '/') {
         cmd_process(app, inp);
     } else {
-        /* Plain text: send it to the current room and echo it on our screen. */
+        /* Plain text: send it to the current room.
+         * Server will broadcast PUBLIC back to all room members (including sender).
+         * client/protocol.c:handle_public() will display it cleanly without duplicates. */
         char out[MAX_MESSAGE + 128];
         snprintf(out, sizeof(out), "PUBLIC|%s|%s", app->current_room, inp);
         net_send_line(app->sockfd, out);
-        char ts[32];
-        time_t t = time(NULL);
-        strftime(ts, sizeof(ts), "%I:%M %p", localtime(&t));
         strncpy(app->typing, "", sizeof(app->typing));
-        tui_add_line(app, LN_SELF, "[%s] %s: %s", ts, app->username, inp);
     }
     strcpy(app->input, "");
     app->input_len = 0;
@@ -108,7 +106,7 @@ static void cmd_help(App *app) {
     tui_add_line(app, LN_STATUS, "-- ConnectHub commands --");
     tui_add_line(app, LN_STATUS, "  /msg <user> <text>       private 1-on-1 message");
     tui_add_line(app, LN_STATUS, "  /join <room> [password]  join a room   /leave = back to #general");
-    tui_add_line(app, LN_STATUS, "  /create <room>  /createroom <name> [title|desc|pw]  /deleteroom <room>");
+    tui_add_line(app, LN_STATUS, "  /create <room> [pass]    create a room (/createroom for title/desc)");
     tui_add_line(app, LN_STATUS, "  /who [room]  /history  /rooms  /users  /clear  /typing  /help  /quit");
     tui_add_line(app, LN_STATUS, "  /sendfile [@user] <path> offer a file (default: to room)");
     tui_add_line(app, LN_STATUS, "  /accept <offer#>         accept an incoming file (see [1] prompts)");
@@ -139,15 +137,57 @@ static void cmd_msg(App *app, const char *rest) {
         char out[MAX_MESSAGE + 64];
         snprintf(out, sizeof(out), "PRIVATE|%s|%s", user, text);
         net_send_line(app->sockfd, out);
-        char ts[32]; time_t t = time(NULL); strftime(ts, sizeof(ts), "%I:%M %p", localtime(&t));
-        tui_add_line(app, LN_PM, "[%s] -> %s: %s", ts, user, text);
+        /* Server echoes PRIVATE back with authoritative timestamp to handle_private() */
     } else tui_add_line(app, LN_ERROR, "Usage: /msg <username> <text>");
+}
+
+static void parse_join_args(const char *rest, char *room, char *pw) {
+    room[0] = pw[0] = '\0';
+    if (!rest || !rest[0]) return;
+
+    if (strchr(rest, '|')) {
+        char copy[256];
+        strncpy(copy, rest, sizeof(copy) - 1);
+        copy[sizeof(copy) - 1] = '\0';
+        char *pipe = strchr(copy, '|');
+        *pipe = '\0';
+        strncpy(room, copy, MAX_ROOM_NAME - 1);
+        strncpy(pw, pipe + 1, 63);
+    } else {
+        char tokens[2][256];
+        memset(tokens, 0, sizeof(tokens));
+        int count = 0;
+        const char *p = rest;
+        while (*p && count < 2) {
+            while (*p == ' ' || *p == '\t') p++;
+            if (!*p) break;
+            if (*p == '"') {
+                p++;
+                int len = 0;
+                while (*p && *p != '"' && len < 255) tokens[count][len++] = *p++;
+                tokens[count][len] = '\0';
+                if (*p == '"') p++;
+            } else {
+                int len = 0;
+                while (*p && *p != ' ' && *p != '\t' && len < 255) tokens[count][len++] = *p++;
+                tokens[count][len] = '\0';
+            }
+            count++;
+        }
+        if (count >= 1) strncpy(room, tokens[0], MAX_ROOM_NAME - 1);
+        if (count >= 2) strncpy(pw, tokens[1], 63);
+    }
+
+    /* Strip leading '#' if typed (e.g. /join #dev -> dev) */
+    if (room[0] == '#') {
+        memmove(room, room + 1, strlen(room));
+    }
 }
 
 static void cmd_join(App *app, const char *rest) {
     char room[MAX_ROOM_NAME] = {0}; char pw[64] = {0};
-    int n = sscanf(rest, "%63s %63s", room, pw);
-    if (n >= 1 && room[0]) {
+    parse_join_args(rest, room, pw);
+    if (room[0]) {
         char out[128];
         if (pw[0]) snprintf(out, sizeof(out), "JOIN|%s|%s", room, pw);
         else       snprintf(out, sizeof(out), "JOIN|%s", room);

@@ -130,29 +130,37 @@ static void h_typing(Client *c, Cmd *m) {
 /* ---- rooms ---- */
 
 static void h_join(Client *c, Cmd *m) {
-    const char *room_name = m->a1;
+    char clean_room[MAX_ROOM_NAME];
+    const char *raw_room = m->a1;
+    if (raw_room[0] == '#') raw_room++;
+    strncpy(clean_room, raw_room, sizeof(clean_room) - 1);
+    clean_room[sizeof(clean_room) - 1] = '\0';
     const char *password = (m->parts >= 3) ? m->a2 : "";
 
-    if (!room_exists(room_name)) {
+    if (!room_exists(clean_room)) {
         char err[256];
-        snprintf(err, sizeof(err), "JOIN_FAIL|Room '%s' does not exist\n", room_name);
+        snprintf(err, sizeof(err), "JOIN_FAIL|Room '%s' does not exist\n", clean_room);
         send_raw(c, err);
-    } else if (room_is_protected(room_name) && !c->is_admin) {
-        /* Protected room: allowed if already granted, or with the password. */
-        if (!room_has_access(c->username, room_name)) {
-            if (!password[0] || !room_check_password(room_name, password)) {
+    } else if (room_is_protected(clean_room) && !c->is_admin) {
+        /* Protected room: allowed if already granted, or with the correct password. */
+        if (!room_has_access(c->username, clean_room)) {
+            if (!password[0]) {
                 char err[256];
-                snprintf(err, sizeof(err), "JOIN_FAIL|Room '%s' requires password\n", room_name);
+                snprintf(err, sizeof(err), "JOIN_FAIL|Room '%s' is password-protected. Usage: /join %s <password>\n", clean_room, clean_room);
+                send_raw(c, err);
+            } else if (!room_check_password(clean_room, password)) {
+                char err[256];
+                snprintf(err, sizeof(err), "JOIN_FAIL|Invalid password for room '%s'\n", clean_room);
                 send_raw(c, err);
             } else {
-                room_grant_access(c->username, room_name);
-                net_finish_join(c, room_name);
+                room_grant_access(c->username, clean_room);
+                net_finish_join(c, clean_room);
             }
         } else {
-            net_finish_join(c, room_name);
+            net_finish_join(c, clean_room);
         }
     } else {
-        net_finish_join(c, room_name);
+        net_finish_join(c, clean_room);
     }
 }
 

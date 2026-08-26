@@ -115,6 +115,9 @@ bool room_delete(const char *name, const char *requester) {
         pp = &((*pp)->next);
     }
     pthread_mutex_unlock(&room_mutex);
+    if (found) {
+        room_access_remove_room(name);
+    }
     return found;
 }
 
